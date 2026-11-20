@@ -207,8 +207,12 @@ A* optimality condition.
   at no cost.
 - **Heuristic** `h(x) = max(0, |x - goal.center()| - goal_radius)`. It is consistent for
   Euclidean edge costs. It is admissible if every node whose set is proven inside the goal
-  has its nominal state within `goal_radius` of the center. The default radius is
-  infinite, so `h = 0` and the search is uniform-cost. The heuristic orders expansion
+  has its nominal state within `goal_radius` of the center. `search::GoalRadius` picks the
+  radius: `Infinite` (the default, `h = 0`, uniform cost), `Fixed(r)`, or `FromGoal`,
+  which takes `Goal::radius()`. `PolytopeGoal` answers it with the distance from its
+  center to the farthest corner of the box its axis-aligned facets bound (`None` if an
+  axis is unbounded that way), widened by a few ULPs. `FromGoal` is admissible when each
+  goal node's nominal state lies in its set, as for the affine model. The heuristic orders expansion
   only, so it never affects safety.
 - **Deduplication.** Nominal states are binned into cells of width `resolution` (default
   `1e-6`, which merges rounding noise only). A new node is dropped if a node in its cell
@@ -217,6 +221,20 @@ A* optimality condition.
   Dominance compares interval hulls, because polyzonotope 0.2 cannot prove one polynomial
   zonotope inside another. Pruning never affects safety, but it can cost completeness in
   passages where a set is much thinner than its hull.
+- **Workspace bounds.** `search::Problem::bounds` is an optional box for nominal states.
+  Successors outside it are dropped before their edge is checked, so an open world needs
+  no framing walls to stay finite. It bounds nominal states only; keeping whole sets
+  inside is a job for obstacles. `new` rejects NaN or inverted bounds and bounds that
+  exclude the start.
+- **Subtree pruning (opt-in).** With `Config::prune_superseded_subtrees`, a node that a
+  new node supersedes also takes every descendant it has generated off the open list.
+  This is sound: pruning only removes open nodes, every kept edge stays proven, and the
+  goal branch is rebuilt from parents that are never removed. A guard keeps the
+  superseding node's own branch, although positive edge costs already rule that case
+  out. It is rarely effective: the heuristic is consistent, so `f` never decreases along
+  an edge, and an expanded node can only be superseded by one of *equal* cost. On the
+  slalom it prunes nothing and gives the same path. Unit tests on hand-pushed nodes cover
+  the pruning itself.
 - **Budget.** `max_expansions` bounds one `solve` call. Calling it again continues the
   search.
 - Ties in `f` pop the oldest node first, so runs are deterministic.

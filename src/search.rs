@@ -4,8 +4,9 @@
 //! expand a node, every motion primitive (an offset from the nominal state) is steered
 //! toward, the node's set is propagated along the edge, and the edge is kept only if every
 //! set covering it is proven disjoint from every obstacle. Nodes are expanded in order of
-//! `f = g + h`: `g` is the nominal path length, `h` a conservative lower bound on the
-//! remaining length (see [`Config::goal_radius`]). A node reaches the goal when its whole
+//! `f = g + h`: `g` is the path cost (see [`Config::cost`]), `h` a conservative lower bound
+//! on the remaining length (see [`Config::goal_radius`]). Successors whose nominal state
+//! leaves [`Problem::bounds`] are dropped. A node reaches the goal when its whole
 //! set is proven inside the goal region; the first such node popped is returned.
 //!
 //! ```mermaid
@@ -39,7 +40,7 @@
 //!     Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope,
 //! };
 //! use robust_planning::sampling_planning::StraightLine;
-//! use robust_planning::search::{Config, Problem, ReachSearch};
+//! use robust_planning::search::{Config, GoalRadius, Problem, ReachSearch};
 //! use robust_planning::{Obstacles, PolytopeGoal, Reach, WithSteering};
 //!
 //! /// Jumps to the setpoint along a straight line, ending within 0.1 of it.
@@ -81,8 +82,9 @@
 //!     start_set: SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&square(0.0, 0.0, 0.1))),
 //!     goal: PolytopeGoal::from_box(&square(4.0, 0.0, 0.3), 4),
 //!     primitives,
+//!     bounds: None,
 //! };
-//! let config = Config { goal_radius: 0.0, ..Config::default() };
+//! let config = Config { goal_radius: GoalRadius::Fixed(0.0), ..Config::default() };
 //! let mut search = ReachSearch::new(problem, config).expect("valid start and config");
 //! let path = search.solve().expect("the detour is proven safe");
 //!
@@ -119,6 +121,30 @@ pub struct Problem<R, const N: usize, G = PolytopeGoal<N>> {
     /// Grid vectors that the model reaches exactly (for example the 4- or 8-neighborhood at
     /// one step length) keep nominal states on a lattice, so deduplication can merge them.
     pub primitives: Vec<[f64; N]>,
+    /// The workspace: lower and upper corners of the box that every nominal state must lie
+    /// in, or `None` for no bound.
+    ///
+    /// Successors outside it are dropped before their edge is checked, which keeps the
+    /// lattice finite in open worlds without framing walls. It bounds nominal states only;
+    /// to keep whole sets inside, add the outside as obstacles.
+    pub bounds: Option<([f64; N], [f64; N])>,
+}
+
+/// Where the heuristic's goal radius comes from; see [`Config::goal_radius`].
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum GoalRadius {
+    /// An infinite radius: `h = 0`, a uniform-cost search. The default.
+    #[default]
+    Infinite,
+    /// This radius. Non-negative and not NaN.
+    Fixed(f64),
+    /// [`Goal::radius`] of the problem's goal, for example the half diagonal of a
+    /// [`PolytopeGoal`] box.
+    ///
+    /// Admissible when each goal node's nominal state lies in its set, so that a set inside
+    /// the goal puts the nominal state inside it as well. That holds for models whose set
+    /// contains the nominal trajectory, like the affine test model.
+    FromGoal,
 }
 
 /// Settings for [`ReachSearch`].
@@ -128,7 +154,6 @@ pub struct Config {
     /// Positive and finite.
     pub resolution: f64,
     /// Distance from [`Goal::center`] within which every goal node's nominal state lies.
-    /// Non-negative; may be infinite.
     ///
     /// The heuristic is `h(x) = max(0, |x - center| - goal_radius)`, which is consistent
     /// for Euclidean edge costs. It is admissible, and the returned path optimal over the
@@ -136,23 +161,38 @@ pub struct Config {
     /// has its nominal state within `goal_radius` of the center. An infinite radius gives
     /// `h = 0`, a uniform-cost search that is always admissible but expands more nodes.
     /// The heuristic never affects safety.
-    pub goal_radius: f64,
+    pub goal_radius: GoalRadius,
     /// The most nodes [`ReachSearch::solve`] expands before giving up.
     pub max_expansions: usize,
     /// How an edge is priced; `g` sums it. [`Cost::Length`] by default. Every option is at
     /// least the nominal length, so the heuristic stays admissible.
     pub cost: Cost,
+    /// When a new node supersedes an older one, also skip every descendant the older node
+    /// has generated so far. Off by default.
+    ///
+    /// The superseded node's subtree was grown from a set that a cheaper node with a set
+    /// at most as wide (by the hull test) now covers, so the new node regrows it. Pruning
+    /// only removes nodes from the open list; every kept edge stays proven, so it never
+    /// affects safety. Like deduplication it can cost completeness, since dominance is a
+    /// hull test.
+    ///
+    /// With the shipped heuristic, which is consistent, `f` never decreases along an edge.
+    /// A node that is already expanded is then superseded only by a node of exactly equal
+    /// cost, so this rarely prunes anything; it saves work only on such ties.
+    pub prune_superseded_subtrees: bool,
 }
 
 impl Default for Config {
     /// A resolution of `1e-6` (merging only rounding noise), an infinite goal radius
-    /// (uniform-cost search) and at most 10 000 expansions.
+    /// (uniform-cost search), at most 10 000 expansions, length costs and no subtree
+    /// pruning.
     fn default() -> Self {
         Self {
             resolution: 1e-6,
-            goal_radius: f64::INFINITY,
+            goal_radius: GoalRadius::Infinite,
             max_expansions: 10_000,
             cost: Cost::Length,
+            prune_superseded_subtrees: false,
         }
     }
 }
@@ -164,8 +204,12 @@ pub enum Error {
     StartNotSafe(SafetyVerdict),
     /// [`Config::resolution`] is not positive and finite.
     ResolutionOutOfRange,
-    /// [`Config::goal_radius`] is negative or NaN.
+    /// [`Config::goal_radius`] is a negative or NaN [`GoalRadius::Fixed`].
     GoalRadiusOutOfRange,
+    /// [`Config::goal_radius`] is [`GoalRadius::FromGoal`] but the goal knows no radius.
+    GoalRadiusUnavailable,
+    /// [`Problem::bounds`] has a NaN or inverted bound, or does not contain the start.
+    InvalidBounds,
     /// The weight of [`Config::cost`] is negative or not finite.
     InvalidCostWeight,
 }
@@ -176,6 +220,10 @@ impl fmt::Display for Error {
             Self::StartNotSafe(verdict) => write!(f, "start set is not proven safe ({verdict:?})"),
             Self::ResolutionOutOfRange => f.write_str("resolution must be positive and finite"),
             Self::GoalRadiusOutOfRange => f.write_str("goal radius must be non-negative"),
+            Self::GoalRadiusUnavailable => f.write_str("the goal provides no radius"),
+            Self::InvalidBounds => {
+                f.write_str("bounds must be ordered, not NaN, and contain the start")
+            }
             Self::InvalidCostWeight => f.write_str("cost weight must be finite and non-negative"),
         }
     }
@@ -239,6 +287,12 @@ pub struct ReachSearch<R: Reach<N>, const N: usize, G = PolytopeGoal<N>> {
     superseded: Vec<bool>,
     /// Nodes expanded so far.
     expansions: usize,
+    /// The resolved [`Config::goal_radius`]; non-negative, may be infinite.
+    goal_radius: f64,
+    /// Child ids by node id; kept for [`Config::prune_superseded_subtrees`].
+    children: Vec<Vec<usize>>,
+    /// Descendants skipped by [`Config::prune_superseded_subtrees`] so far.
+    pruned: usize,
     /// The node whose set was proven inside the goal, once popped.
     goal_node: Option<usize>,
     /// Scratch buffer for the cover sets of the edge being checked.
@@ -255,22 +309,14 @@ where
     /// # Errors
     ///
     /// - [`Error::ResolutionOutOfRange`] if the resolution is not positive and finite.
-    /// - [`Error::GoalRadiusOutOfRange`] if the goal radius is negative or NaN.
+    /// - [`Error::GoalRadiusOutOfRange`] if a fixed goal radius is negative or NaN.
+    /// - [`Error::GoalRadiusUnavailable`] if the radius should come from a goal that has
+    ///   none.
     /// - [`Error::InvalidCostWeight`] if the cost weight is negative or not finite.
+    /// - [`Error::InvalidBounds`] if the bounds are NaN, inverted or exclude the start.
     /// - [`Error::StartNotSafe`] if the start set is not proven disjoint from every obstacle.
     pub fn new(problem: Problem<R, N, G>, config: Config) -> Result<Self, Error> {
-        if !(config.resolution.is_finite() && config.resolution > 0.0) {
-            return Err(Error::ResolutionOutOfRange);
-        }
-
-        if config.goal_radius.is_nan() || config.goal_radius < 0.0 {
-            return Err(Error::GoalRadiusOutOfRange);
-        }
-
-        if !config.cost.is_valid() {
-            return Err(Error::InvalidCostWeight);
-        }
-
+        let goal_radius = validate(&problem, &config)?;
         let verdict = problem.obstacles.check_set(&problem.start_set);
 
         if !verdict.is_safe() {
@@ -294,6 +340,9 @@ where
             open: BinaryHeap::new(),
             superseded: Vec::new(),
             expansions: 0,
+            goal_radius,
+            children: Vec::new(),
+            pruned: 0,
             goal_node: None,
             cover: Vec::new(),
         };
@@ -354,6 +403,12 @@ where
     #[must_use]
     pub const fn goal_node(&self) -> Option<usize> {
         self.goal_node
+    }
+
+    /// The number of descendants skipped by [`Config::prune_superseded_subtrees`] so far.
+    #[must_use]
+    pub const fn pruned(&self) -> usize {
+        self.pruned
     }
 
     /// The number of nodes expanded so far.
@@ -425,7 +480,7 @@ where
         let length = Euclidean::<N>.distance(&parent.nominal, &nominal);
 
         // A zero-length edge could repeat forever at no cost.
-        if length.is_nan() || length <= 0.0 {
+        if length.is_nan() || length <= 0.0 || !self.in_bounds(&nominal) {
             return None;
         }
 
@@ -473,26 +528,72 @@ where
         let id = self.nodes.len();
         let f = cost + self.heuristic(&node.nominal);
         let cell = self.cells.entry(self.cell(&node.nominal)).or_default();
+        let dominated: Vec<usize> = cell
+            .iter()
+            .copied()
+            .filter(|&e| cost <= self.costs[e] && box_within(&hull, &self.hulls[e]))
+            .collect();
+        cell.push(id);
 
-        for &e in cell.iter() {
-            if cost <= self.costs[e] && box_within(&hull, &self.hulls[e]) {
-                self.superseded[e] = true;
-            }
+        if let Some(parent) = node.parent {
+            self.children[parent].push(id);
         }
 
-        cell.push(id);
         self.hulls.push(hull);
         self.superseded.push(false);
         self.costs.push(cost);
+        self.children.push(Vec::new());
         self.nodes.push(node);
         self.open.push(Entry { f, id });
+
+        for e in dominated {
+            self.supersede(e, id);
+        }
+    }
+
+    /// Marks node `e` superseded by node `by` and, with
+    /// [`Config::prune_superseded_subtrees`], every descendant of `e` as well.
+    ///
+    /// Descendants that are ancestors of `by` are kept, so `by`'s own branch is never
+    /// pruned. With positive edge costs that case cannot arise, since `by` costs at most
+    /// as much as `e`; the guard keeps it sound regardless.
+    fn supersede(&mut self, e: usize, by: usize) {
+        self.superseded[e] = true;
+
+        if !self.config.prune_superseded_subtrees {
+            return;
+        }
+
+        let ancestors = node::branch(&self.nodes, by);
+
+        if ancestors.contains(&e) {
+            return;
+        }
+
+        let mut stack = self.children[e].clone();
+
+        while let Some(id) = stack.pop() {
+            if !self.superseded[id] {
+                self.superseded[id] = true;
+                self.pruned += 1;
+            }
+
+            stack.extend_from_slice(&self.children[id]);
+        }
+    }
+
+    /// Whether `nominal` lies in [`Problem::bounds`], if there are any.
+    fn in_bounds(&self, nominal: &[f64; N]) -> bool {
+        self.problem.bounds.is_none_or(|(lower, upper)| {
+            (0..N).all(|i| lower[i] <= nominal[i] && nominal[i] <= upper[i])
+        })
     }
 
     /// The lower bound `max(0, |x - center| - goal_radius)` on the remaining path length.
     fn heuristic(&self, nominal: &[f64; N]) -> f64 {
         let distance = Euclidean::<N>.distance(nominal, &self.problem.goal.center());
 
-        (distance - self.config.goal_radius).max(0.0)
+        (distance - self.goal_radius).max(0.0)
     }
 
     /// The lattice cell of `nominal`.
@@ -510,6 +611,38 @@ where
     }
 }
 
+/// Checks `config` and the bounds of `problem`, and resolves the goal radius.
+fn validate<R, const N: usize, G: Goal<N>>(
+    problem: &Problem<R, N, G>,
+    config: &Config,
+) -> Result<f64, Error> {
+    if !(config.resolution.is_finite() && config.resolution > 0.0) {
+        return Err(Error::ResolutionOutOfRange);
+    }
+
+    if !config.cost.is_valid() {
+        return Err(Error::InvalidCostWeight);
+    }
+
+    if let Some((lower, upper)) = problem.bounds {
+        let contains_start =
+            (0..N).all(|i| lower[i] <= problem.start[i] && problem.start[i] <= upper[i]);
+
+        if !contains_start {
+            return Err(Error::InvalidBounds);
+        }
+    }
+
+    match config.goal_radius {
+        GoalRadius::Infinite => Ok(f64::INFINITY),
+        GoalRadius::Fixed(radius) if radius.is_nan() || radius < 0.0 => {
+            Err(Error::GoalRadiusOutOfRange)
+        }
+        GoalRadius::Fixed(radius) => Ok(radius),
+        GoalRadius::FromGoal => problem.goal.radius().ok_or(Error::GoalRadiusUnavailable),
+    }
+}
+
 /// Whether box `inner` lies inside box `outer`, bound by bound.
 fn box_within(inner: &IntervalBox, outer: &IntervalBox) -> bool {
     inner.dim() == outer.dim()
@@ -522,9 +655,112 @@ fn box_within(inner: &IntervalBox, outer: &IntervalBox) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use polyzonotope::Interval;
+    use polyzonotope::{Interval, Zonotope};
+    use sampling_planning::StraightLine;
 
     use super::*;
+    use crate::WithSteering;
+
+    /// Jumps to the setpoint; the end set is the box of half width 0.1 around it.
+    struct Snap;
+
+    impl Reach<2> for Snap {
+        type Control = [f64; 2];
+
+        fn propagate(
+            &self,
+            _: &SparsePolyZonotope,
+            end: &[f64; 2],
+            cover: &mut Vec<SparsePolyZonotope>,
+        ) -> SparsePolyZonotope {
+            cover.push(square(*end, 0.1));
+            square(*end, 0.1)
+        }
+    }
+
+    /// The box `center ± half_width` as a set.
+    fn square(center: [f64; 2], half_width: f64) -> SparsePolyZonotope {
+        let b = IntervalBox(
+            center
+                .iter()
+                .map(|c| Interval::new(c - half_width, c + half_width))
+                .collect(),
+        );
+
+        SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&b))
+    }
+
+    /// A search with no obstacles and no primitives; nodes are pushed by hand.
+    fn empty_search(prune: bool) -> ReachSearch<WithSteering<Snap, StraightLine>, 2> {
+        let problem = Problem {
+            reach: WithSteering::new(Snap, StraightLine::new(1.0)),
+            obstacles: Obstacles::new(Vec::new(), 0),
+            start: [0.0, 0.0],
+            start_set: square([0.0, 0.0], 0.1),
+            goal: PolytopeGoal::from_box(&IntervalBox(vec![Interval::new(8.0, 9.0); 2]), 0),
+            primitives: Vec::new(),
+            bounds: None,
+        };
+        let config = Config {
+            prune_superseded_subtrees: prune,
+            ..Config::default()
+        };
+
+        ReachSearch::new(problem, config).expect("valid")
+    }
+
+    /// Pushes a node at `nominal` under `parent` with `cost` and a set of `half_width`.
+    fn push(
+        search: &mut ReachSearch<WithSteering<Snap, StraightLine>, 2>,
+        parent: usize,
+        nominal: [f64; 2],
+        cost: f64,
+        half_width: f64,
+    ) -> usize {
+        let set = square(nominal, half_width);
+        let hull = set.interval_hull();
+        let node = Node {
+            nominal,
+            set,
+            parent: Some(parent),
+            control: Some(nominal),
+        };
+        search.push(node, cost, hull);
+
+        search.nodes.len() - 1
+    }
+
+    #[test]
+    fn superseding_prunes_the_old_subtree_only_when_asked() {
+        for prune in [false, true] {
+            let mut search = empty_search(prune);
+            let a = push(&mut search, 0, [1.0, 0.0], 1.0, 0.3);
+            let b = push(&mut search, a, [2.0, 0.0], 2.0, 0.3);
+            let c = push(&mut search, b, [3.0, 0.0], 3.0, 0.3);
+            let other = push(&mut search, 0, [0.0, 1.0], 1.0, 0.3);
+            let d = push(&mut search, 0, [1.0, 0.0], 0.5, 0.1);
+
+            assert!(search.superseded[a], "d is cheaper and narrower than a");
+            assert_eq!(search.superseded[b], prune);
+            assert_eq!(search.superseded[c], prune);
+            assert!(!search.superseded[other] && !search.superseded[d]);
+            assert_eq!(search.pruned(), if prune { 2 } else { 0 });
+        }
+    }
+
+    #[test]
+    fn pruning_never_touches_the_branch_of_the_superseding_node() {
+        let mut search = empty_search(true);
+        let a = push(&mut search, 0, [1.0, 0.0], 1.0, 0.3);
+        let b = push(&mut search, a, [2.0, 0.0], 1.0, 0.3);
+        // A zero-cost loop back into a's cell, which positive edge costs rule out; the guard
+        // keeps a's subtree, which holds the new node's own branch.
+        let d = push(&mut search, b, [1.0, 0.0], 1.0, 0.1);
+
+        assert!(search.superseded[a]);
+        assert!(!search.superseded[b] && !search.superseded[d]);
+        assert_eq!(search.pruned(), 0);
+    }
 
     #[test]
     fn open_list_pops_lowest_f_then_oldest() {

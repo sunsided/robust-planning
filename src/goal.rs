@@ -24,6 +24,16 @@ pub trait Goal<const N: usize> {
     /// Only [`Containment::Inside`] is a proof; planners treat
     /// [`Containment::NotInside`] and [`Containment::Unknown`] alike.
     fn containment(&self, set: &SparsePolyZonotope) -> Containment;
+
+    /// An upper bound on the distance from [`Goal::center`] to any point of the goal, if
+    /// the goal knows one.
+    ///
+    /// [`ReachSearch`](crate::ReachSearch) derives its heuristic radius from it with
+    /// [`GoalRadius::FromGoal`](crate::search::GoalRadius::FromGoal). It affects only the
+    /// search order, never safety. The default is `None`.
+    fn radius(&self) -> Option<f64> {
+        None
+    }
 }
 
 /// A convex polytope goal in H-representation, `{ x | aᵢᵀ x <= dᵢ for every facet i }`.
@@ -114,6 +124,26 @@ impl<const N: usize> Goal<N> for PolytopeGoal<N> {
         self.center
     }
 
+    /// The distance from the center to the farthest corner of the box that the polytope's
+    /// axis-aligned facets bound, or `None` if some axis is not bounded on both sides by
+    /// such a facet.
+    ///
+    /// Facets with other normals only cut the polytope further, so the box contains it and
+    /// the radius is an upper bound. It is widened by a few ULPs against rounding.
+    fn radius(&self) -> Option<f64> {
+        let (lower, upper) = axis_bounds::<N>(&self.polytope);
+        let squared: f64 = (0..N)
+            .map(|i| {
+                let reach = (self.center[i] - lower[i]).max(upper[i] - self.center[i]);
+
+                reach * reach
+            })
+            .sum();
+        let radius = squared.sqrt() * (1.0 + 8.0 * f64::EPSILON);
+
+        radius.is_finite().then_some(radius)
+    }
+
     /// Delegates to [`SparsePolyZonotope::containment`] within the split budget.
     ///
     /// # Panics
@@ -122,6 +152,29 @@ impl<const N: usize> Goal<N> for PolytopeGoal<N> {
     fn containment(&self, set: &SparsePolyZonotope) -> Containment {
         set.containment(&self.polytope, self.max_splits)
     }
+}
+
+/// The tightest lower and upper bound per axis among the facets of `polytope` whose normal
+/// has exactly one non-zero entry; infinite where no such facet bounds that side.
+fn axis_bounds<const N: usize>(polytope: &Polytope) -> ([f64; N], [f64; N]) {
+    let mut lower = [f64::NEG_INFINITY; N];
+    let mut upper = [f64::INFINITY; N];
+
+    for facet in &polytope.facets {
+        let mut nonzero = facet.normal.iter().enumerate().filter(|(_, a)| **a != 0.0);
+        let (Some((axis, &a)), None) = (nonzero.next(), nonzero.next()) else {
+            continue;
+        };
+        let bound = facet.offset / a;
+
+        if a > 0.0 {
+            upper[axis] = upper[axis].min(bound);
+        } else {
+            lower[axis] = lower[axis].max(bound);
+        }
+    }
+
+    (lower, upper)
 }
 
 #[cfg(test)]
@@ -215,5 +268,25 @@ mod tests {
         let polytope = Polytope::from_box(&IntervalBox(vec![Interval::new(0.0, 1.0); 3]));
 
         let _ = PolytopeGoal::<2>::new(polytope, [0.5, 0.5], 8);
+    }
+
+    #[test]
+    fn radius_bounds_the_box_and_needs_axis_facets() {
+        let unit = unit_goal().radius().expect("a box bounds every axis");
+
+        assert!(unit >= 0.5f64.sqrt() && unit < 0.5f64.sqrt() + 1e-12);
+        assert_eq!(
+            triangle().radius(),
+            None,
+            "x + y <= 1 bounds no axis from above"
+        );
+
+        let mut cut = unit_goal();
+        cut.polytope.facets.extend(triangle().polytope.facets);
+        let radius = cut.radius().expect("the box facets are still there");
+        assert!(
+            radius >= 0.5f64.sqrt(),
+            "extra facets never shrink the bound below the box"
+        );
     }
 }

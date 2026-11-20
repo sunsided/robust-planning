@@ -10,7 +10,7 @@ use criterion::Criterion;
 use polyzonotope::{Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope};
 use robust_planning::{
     Obstacles, PolytopeGoal,
-    search::{Config, Problem, ReachSearch},
+    search::{Config, GoalRadius, Problem, ReachSearch},
 };
 
 /// Runs every benchmark in this file with criterion's command-line flags.
@@ -52,13 +52,14 @@ fn problem() -> Problem<affine::Affine<2>, 2> {
         ))),
         goal: PolytopeGoal::from_box(&rect(8.5, 9.5, 8.5, 9.5), 8),
         primitives,
+        bounds: None,
     }
 }
 
 /// Solves the slalom with A* (goal radius 0.75).
 fn bench_slalom(criterion: &mut Criterion) {
     let config = Config {
-        goal_radius: 0.75,
+        goal_radius: GoalRadius::FromGoal,
         ..Config::default()
     };
 

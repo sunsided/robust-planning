@@ -4,7 +4,7 @@ use polyzonotope::{Intersection, SparsePolyZonotope, Zonotope};
 use rand_pcg::Pcg64Mcg;
 use robust_planning::{
     Cost, Obstacles, PolytopeGoal, Reach,
-    search::{Config, Problem, ReachSearch},
+    search::{Config, GoalRadius, Problem, ReachSearch},
 };
 use sampling_planning::rand_core::SeedableRng;
 
@@ -57,6 +57,7 @@ fn search(obstacles: &[Rect], start: [f64; 2], goal: [f64; 2], config: Config) -
         )))),
         goal: PolytopeGoal::from_box(&interval_box(&square(goal, 0.5)), 8),
         primitives: eight_neighborhood(0.5),
+        bounds: None,
     };
 
     ReachSearch::new(problem, config).expect("valid start and config")
@@ -66,7 +67,7 @@ fn search(obstacles: &[Rect], start: [f64; 2], goal: [f64; 2], config: Config) -
 /// its center, since the model's nominal state lies in its set.
 fn astar() -> Config {
     Config {
-        goal_radius: 0.75,
+        goal_radius: GoalRadius::Fixed(0.75),
         ..Config::default()
     }
 }
@@ -259,4 +260,162 @@ fn width_weighted_cost_is_optimal_with_and_without_the_heuristic() {
         })
         .sum();
     assert!((recomputed - astar_path.cost).abs() < 1e-9);
+}
+
+/// A search without framing walls around `obstacles`, over the 8-neighborhood at 0.5,
+/// with nominal states bounded by `bounds`.
+fn bounded(
+    obstacles: &[Rect],
+    goal: [f64; 2],
+    bounds: Option<([f64; 2], [f64; 2])>,
+    config: Config,
+) -> Result<Search, robust_planning::search::Error> {
+    let problem = Problem {
+        reach: model(),
+        obstacles: Obstacles::new(polytopes(obstacles), SPLITS),
+        start: [1.0, 1.0],
+        start_set: SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&interval_box(&square(
+            [1.0, 1.0],
+            0.1,
+        )))),
+        goal: PolytopeGoal::from_box(&interval_box(&square(goal, 0.5)), 8),
+        primitives: eight_neighborhood(0.5),
+        bounds,
+    };
+
+    ReachSearch::new(problem, config)
+}
+
+#[test]
+fn workspace_bounds_keep_an_unframed_search_finite() {
+    let bounds = ([0.0, 0.0], [4.0, 4.0]);
+    let mut search = bounded(&[], [9.0, 9.0], Some(bounds), Config::default()).expect("valid");
+
+    assert!(search.solve().is_none(), "the goal lies outside the bounds");
+    assert!(search.is_exhausted(), "the bounded lattice is finite");
+    assert!(
+        search
+            .nodes()
+            .iter()
+            .all(|n| n.nominal.iter().all(|x| (0.0..=4.0).contains(x)))
+    );
+
+    let mut reachable = bounded(&[], [3.0, 3.0], Some(bounds), Config::default()).expect("valid");
+    let path = reachable.solve().expect("the goal lies inside the bounds");
+    assert!((path.cost - 2.0 * 2.0f64.sqrt()).abs() < 1e-9);
+}
+
+#[test]
+fn invalid_bounds_are_rejected() {
+    use robust_planning::search::Error;
+
+    let invalid = |bounds| bounded(&[], [3.0, 3.0], Some(bounds), Config::default()).err();
+
+    assert_eq!(
+        invalid(([2.0, 0.0], [4.0, 4.0])),
+        Some(Error::InvalidBounds)
+    );
+    assert_eq!(
+        invalid(([0.0, 4.0], [4.0, 0.0])),
+        Some(Error::InvalidBounds)
+    );
+    assert_eq!(
+        invalid(([f64::NAN, 0.0], [4.0, 4.0])),
+        Some(Error::InvalidBounds)
+    );
+}
+
+#[test]
+fn goal_radius_from_the_goal_matches_uniform_cost_and_expands_less() {
+    let derived = Config {
+        goal_radius: GoalRadius::FromGoal,
+        ..Config::default()
+    };
+    let mut informed = search(&SLALOM, [1.0, 1.0], [9.0, 9.0], derived);
+    let mut uniform = search(&SLALOM, [1.0, 1.0], [9.0, 9.0], Config::default());
+    let a = informed.solve().expect("the slalom is solvable");
+    let u = uniform.solve().expect("the slalom is solvable");
+
+    assert!((a.cost - u.cost).abs() < 1e-9, "{} vs {}", a.cost, u.cost);
+    assert!(informed.expansions() < uniform.expansions());
+}
+
+#[test]
+fn goal_radius_from_a_goal_without_one_is_an_error() {
+    use polyzonotope::{Halfspace, Polytope};
+    use robust_planning::search::Error;
+
+    let facet = |a: f64, b: f64, offset: f64| Halfspace {
+        normal: nalgebra::DVector::from_column_slice(&[a, b]),
+        offset,
+    };
+    let triangle = Polytope {
+        facets: vec![
+            facet(-1.0, 0.0, -8.0),
+            facet(0.0, -1.0, -8.0),
+            facet(1.0, 1.0, 19.0),
+        ],
+    };
+    let problem = Problem {
+        reach: model(),
+        obstacles: Obstacles::new(Vec::new(), SPLITS),
+        start: [1.0, 1.0],
+        start_set: SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&interval_box(&square(
+            [1.0, 1.0],
+            0.1,
+        )))),
+        goal: PolytopeGoal::new(triangle, [9.0, 9.0], 8),
+        primitives: eight_neighborhood(0.5),
+        bounds: None,
+    };
+    let config = Config {
+        goal_radius: GoalRadius::FromGoal,
+        ..Config::default()
+    };
+
+    assert_eq!(
+        ReachSearch::new(problem, config).err(),
+        Some(Error::GoalRadiusUnavailable)
+    );
+}
+
+#[test]
+fn pruning_superseded_subtrees_stays_sound() {
+    // With the consistent heuristic an expanded node is superseded only on an exact cost
+    // tie, so on the slalom nothing is pruned and the result matches; the unit tests in
+    // `search.rs` cover the pruning itself.
+    for base in [astar(), Config::default()] {
+        let pruning = Config {
+            prune_superseded_subtrees: true,
+            ..base
+        };
+        let mut pruned = search(&SLALOM, [1.0, 1.0], [9.0, 9.0], pruning);
+        let mut plain = search(&SLALOM, [1.0, 1.0], [9.0, 9.0], base);
+        let p = pruned.solve().expect("the slalom is solvable with pruning");
+        let q = plain.solve().expect("the slalom is solvable");
+
+        assert_eq!(p, q);
+        assert!(pruned.expansions() <= plain.expansions());
+        assert_every_edge_disjoint(&pruned, &SLALOM);
+    }
+
+    let pruning = Config {
+        prune_superseded_subtrees: true,
+        ..astar()
+    };
+    let mut pruned = search(&SLALOM, [1.0, 1.0], [9.0, 9.0], pruning);
+    pruned.solve().expect("the slalom is solvable with pruning");
+    let goal = pruned.goal_node().expect("solved");
+    let obstacles = polytopes(&framed(&SLALOM));
+    let mut rng = Pcg64Mcg::seed_from_u64(23);
+
+    for _ in 0..50 {
+        simulate::trajectory(
+            &pruned.problem().reach,
+            pruned.nodes(),
+            &obstacles,
+            goal,
+            &mut rng,
+        );
+    }
 }
