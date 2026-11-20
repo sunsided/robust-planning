@@ -193,6 +193,44 @@ from the caller's RNG, so a seed fixes the run (the tree's nominals, parents, co
 sets). `FactorId`s are process-global, so set *ids* differ between runs, but their bounds
 do not.
 
+## Reachability-guided search: `ReachSearch`
+
+`search::ReachSearch` is A* over reachable-set nodes. Instead of sampling, it expands every
+node along a fixed list of motion primitives (`search::Problem::primitives`), offsets from
+the node's nominal state that `Steer` aims at. Each edge is propagated from the parent's
+set and kept only if `check_edge` proves it `Safe`, exactly as in `RobustRrt`. A node
+reaches the goal when it is *popped* with its set proven inside the goal, which is the
+A* optimality condition.
+
+- **Cost** `g` is the nominal path length. Zero-length edges are skipped, since they could
+  repeat at no cost.
+- **Heuristic** `h(x) = max(0, |x - goal.center()| - goal_radius)`. It is consistent for
+  Euclidean edge costs. It is admissible if every node whose set is proven inside the goal
+  has its nominal state within `goal_radius` of the center. The default radius is
+  infinite, so `h = 0` and the search is uniform-cost. The heuristic orders expansion
+  only, so it never affects safety.
+- **Deduplication.** Nominal states are binned into cells of width `resolution` (default
+  `1e-6`, which merges rounding noise only). A new node is dropped if a node in its cell
+  costs at most as much and has an interval hull inside the new node's hull. A new node
+  that dominates older nodes in its cell supersedes them, and they are skipped when popped.
+  Dominance compares interval hulls, because polyzonotope 0.2 cannot prove one polynomial
+  zonotope inside another. Pruning never affects safety, but it can cost completeness in
+  passages where a set is much thinner than its hull.
+- **Budget.** `max_expansions` bounds one `solve` call. Calling it again continues the
+  search.
+- Ties in `f` pop the oldest node first, so runs are deterministic.
+
+The search has no external heuristic-search dependency. It uses `std`'s `BinaryHeap` and
+`HashMap`.
+
+### Robust RRT*: not implemented
+
+Rewiring changes a node's parent and therefore its reachable set. The whole subtree must
+then be re-propagated and re-proven, and a rewire that makes any descendant unproven must
+be rejected or the descendant pruned. That fits poorly in the local tree. It is deferred
+until `sampling-planning` trees carry per-node payloads (see Cross-crate needs).
+`ReachSearch` already returns the optimal nominal path over the lattice it keeps.
+
 ## Refinement by splitting before rejecting
 
 A set is only rejected after refinement has been tried. `Obstacles` passes its split budget
@@ -256,6 +294,11 @@ Nothing here changes another repo. These are requests to the owning sessions.
   answer `Unknown` or `NotInside` are never reached; `PolytopeGoal` rejects NaN facets and
   never contains a set one ULP outside; `Unsafe` appears only with a hook witness that
   passes the sanity check.
+- **Search:** lattice optima in an open world, hand-checked for straight and diagonal
+  goals and identical with A* and uniform cost. A* and uniform cost agree on the slalom,
+  and A* expands no more nodes. Every edge of the search tree is audited. Monte-Carlo runs
+  along the found path. A passage narrower than the set exhausts the search. No kept node
+  is dominated by an older one in its cell. A budget stop can be resumed.
 - **Unit tests:**
   - the verdict mapping from `Intersection`;
   - the `and` lattice and the `Validity` mapping;
@@ -292,8 +335,9 @@ through polyzonotope's harness; fuzzing of the checker inputs.
    Nonlinear dynamics.
 3. Refinement beyond set splitting: time splitting, initial-set bisection, and budget
    escalation.
-4. Robust RRT* or a reachability-guided best-first search, with re-propagation on
-   rewiring. Reuse `sampling-planning` trees once they carry per-node payloads.
+4. **Done in this draft:** the reachability-guided best-first search (`ReachSearch`).
+   **Open:** Robust RRT* with re-propagation on rewiring, reusing `sampling-planning`
+   trees once they carry per-node payloads.
 5. Safety-constrained trajectory planning: optimize nominal controls under proven set
    constraints. Fail-safe maneuvers.
 6. Optional `temporal-control` adapter for timed plans (spaceflight track).

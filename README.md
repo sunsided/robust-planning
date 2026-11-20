@@ -4,10 +4,15 @@ Planning over reachable sets under uncertainty: Robust-RRT and reachability-guid
 
 ## Scope
 
-- Reachability-guided tree search
-- Robust-RRT
-- Safety-constrained trajectory planning
-- Uses polyzonotope-reach for reachable sets
+- [x] Robust-RRT: an RRT whose nodes carry reachable sets (`RobustRrt`)
+- [x] Reachability-guided search: A* over reachable-set nodes along motion primitives,
+  with lattice deduplication (`ReachSearch`)
+- [x] Edge checks for `sampling-planning` planners (`ReachChecker`)
+- [x] Pluggable steering (`Steer`, `WithSteering`), goals (`Goal`, `PolytopeGoal`) and
+  certified collision witnesses (`Reach::certify_collision`)
+- [ ] Robust RRT* (rewiring with re-propagation)
+- [ ] Safety-constrained trajectory planning
+- [ ] polyzonotope-reach for reachable sets (a test-only affine model stands in)
 
 Every check is conservative: a check that cannot prove safety returns `Indeterminate`, never
 `Safe`, and planners reject it. Proofs are rigorous only with the `sound` feature, which
@@ -16,11 +21,9 @@ needs x86-64 Haswell or newer (see `.cargo/config.toml`) or AArch64. See
 
 ## Status
 
-Pre-release, version 0.0.0. Milestone 1 works: a `ValidityChecker` adapter for
-`sampling-planning` and a Robust-RRT whose nodes carry reachable sets. Run
-`cargo run --example robust_rrt_2d`. Steering (`Steer`, `WithSteering`), goals (`Goal`,
-`PolytopeGoal`) and certified collision witnesses (`Reach::certify_collision`) are
-pluggable. The API will change.
+Pre-release, version 0.0.0. Robust-RRT, the reachability-guided search and the
+`sampling-planning` adapter work. Run `cargo run --example robust_rrt_2d` and
+`cargo bench --bench search`. The API will change.
 
 ## License
 
