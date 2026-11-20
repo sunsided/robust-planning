@@ -18,16 +18,18 @@
 
 use core::fmt;
 
-use polyzonotope::{Containment, Polytope, SparsePolyZonotope};
+use polyzonotope::{Containment, SparsePolyZonotope};
 use sampling_planning::{
     Euclidean, LinearScan, NearestNeighbors, Path, Sampler, StateSpace, rand_core::Rng, unit_f64,
 };
 
-use crate::{Obstacles, Reach, SafetyVerdict, Steer, reach::check_edge};
+use crate::{Goal, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, reach::check_edge};
 
 /// Everything [`RobustRrt`] needs to know about the world.
+///
+/// The goal defaults to a [`PolytopeGoal`]; any [`Goal`] works.
 #[derive(Debug, Clone)]
-pub struct Problem<R, Sa, const N: usize> {
+pub struct Problem<R, Sa, const N: usize, G = PolytopeGoal<N>> {
     /// The dynamics model that steers and propagates.
     pub reach: R,
     /// The obstacles and their split budget.
@@ -38,29 +40,23 @@ pub struct Problem<R, Sa, const N: usize> {
     pub start: [f64; N],
     /// Every state the system may start in. Must be proven safe.
     pub start_set: SparsePolyZonotope,
-    /// The goal region. A node reaches it when its set is proven inside.
-    pub goal: Polytope,
-    /// The state drawn for goal-biased samples, usually inside [`Problem::goal`].
-    pub goal_center: [f64; N],
+    /// The goal region. A node reaches it when its set is proven inside; goal-biased
+    /// samples draw [`Goal::center`].
+    pub goal: G,
 }
 
 /// Settings for [`RobustRrt`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Config {
-    /// Probability in `[0, 1]` of extending toward [`Problem::goal_center`] instead of a
-    /// random sample.
+    /// Probability in `[0, 1]` of extending toward the goal's [`Goal::center`] instead of
+    /// a random sample.
     pub goal_bias: f64,
-    /// Split budget for proving a node's set inside the goal region.
-    pub goal_splits: usize,
 }
 
 impl Default for Config {
-    /// A goal bias of 10 % and 8 goal splits.
+    /// A goal bias of 10 %.
     fn default() -> Self {
-        Self {
-            goal_bias: 0.1,
-            goal_splits: 8,
-        }
+        Self { goal_bias: 0.1 }
     }
 }
 
@@ -102,9 +98,9 @@ impl core::error::Error for Error {}
 /// Every edge in the tree is proven safe over its whole duration, every intermediate time
 /// step included, from the reachable set of its parent. Runs are reproducible: all randomness
 /// comes from the caller's RNG.
-pub struct RobustRrt<R: Reach<N>, Sa, const N: usize> {
+pub struct RobustRrt<R: Reach<N>, Sa, const N: usize, G = PolytopeGoal<N>> {
     /// The problem being solved.
-    problem: Problem<R, Sa, N>,
+    problem: Problem<R, Sa, N, G>,
     /// Settings.
     config: Config,
     /// Tree nodes by id; node `0` is the root.
@@ -117,8 +113,11 @@ pub struct RobustRrt<R: Reach<N>, Sa, const N: usize> {
     cover: Vec<SparsePolyZonotope>,
 }
 
-impl<R: Reach<N> + Steer<N, R::Control>, Sa: Sampler<[f64; N]>, const N: usize>
-    RobustRrt<R, Sa, N>
+impl<R, Sa, const N: usize, G> RobustRrt<R, Sa, N, G>
+where
+    R: Reach<N> + Steer<N, R::Control>,
+    Sa: Sampler<[f64; N]>,
+    G: Goal<N>,
 {
     /// Checks the start set and plants the root.
     ///
@@ -126,7 +125,7 @@ impl<R: Reach<N> + Steer<N, R::Control>, Sa: Sampler<[f64; N]>, const N: usize>
     ///
     /// - [`Error::StartNotSafe`] if the start set is not proven disjoint from every obstacle.
     /// - [`Error::GoalBiasOutOfRange`] if the goal bias is not in `[0, 1]`.
-    pub fn new(problem: Problem<R, Sa, N>, config: Config) -> Result<Self, Error> {
+    pub fn new(problem: Problem<R, Sa, N, G>, config: Config) -> Result<Self, Error> {
         if !(0.0..=1.0).contains(&config.goal_bias) {
             return Err(Error::GoalBiasOutOfRange);
         }
@@ -162,7 +161,7 @@ impl<R: Reach<N> + Steer<N, R::Control>, Sa: Sampler<[f64; N]>, const N: usize>
     /// # Panics
     ///
     /// Panics if the model's sets do not have the obstacles' dimension.
-    pub fn step<G: Rng + ?Sized>(&mut self, rng: &mut G) -> bool {
+    pub fn step<Rg: Rng + ?Sized>(&mut self, rng: &mut Rg) -> bool {
         let target = self.draw(rng);
         let nearest = self
             .nn
@@ -195,10 +194,10 @@ impl<R: Reach<N> + Steer<N, R::Control>, Sa: Sampler<[f64; N]>, const N: usize>
     /// Runs until the goal is reached or at most `max_iterations` iterations.
     ///
     /// Returns the path to the goal, or `None` if none was found within the budget.
-    pub fn solve<G: Rng + ?Sized>(
+    pub fn solve<Rg: Rng + ?Sized>(
         &mut self,
         max_iterations: usize,
-        rng: &mut G,
+        rng: &mut Rg,
     ) -> Option<Path<[f64; N]>> {
         for _ in 0..max_iterations {
             if self.goal_node.is_some() {
@@ -225,7 +224,7 @@ impl<R: Reach<N> + Steer<N, R::Control>, Sa: Sampler<[f64; N]>, const N: usize>
 
     /// The problem being solved.
     #[must_use]
-    pub const fn problem(&self) -> &Problem<R, Sa, N> {
+    pub const fn problem(&self) -> &Problem<R, Sa, N, G> {
         &self.problem
     }
 
@@ -267,9 +266,9 @@ impl<R: Reach<N> + Steer<N, R::Control>, Sa: Sampler<[f64; N]>, const N: usize>
     }
 
     /// Draws the goal center with the configured probability, otherwise a sampler state.
-    fn draw<G: Rng + ?Sized>(&mut self, rng: &mut G) -> [f64; N] {
+    fn draw<Rg: Rng + ?Sized>(&mut self, rng: &mut Rg) -> [f64; N] {
         if unit_f64(rng) < self.config.goal_bias {
-            self.problem.goal_center
+            self.problem.goal.center()
         } else {
             self.problem.sampler.sample(rng)
         }
@@ -289,6 +288,6 @@ impl<R: Reach<N> + Steer<N, R::Control>, Sa: Sampler<[f64; N]>, const N: usize>
 
     /// Whether `set` is proven inside the goal region.
     fn reaches_goal(&self, set: &SparsePolyZonotope) -> bool {
-        set.containment(&self.problem.goal, self.config.goal_splits) == Containment::Inside
+        self.problem.goal.containment(set) == Containment::Inside
     }
 }

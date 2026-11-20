@@ -14,7 +14,7 @@ mod affine;
 use polyzonotope::{Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope};
 use rand_pcg::Pcg64Mcg;
 use robust_planning::{
-    Obstacles,
+    Obstacles, PolytopeGoal,
     robust_rrt::{Config, Problem, RobustRrt},
 };
 use sampling_planning::{UniformBox, rand_core::SeedableRng};
@@ -34,8 +34,7 @@ fn main() {
         sampler: UniformBox::new([0.0, 0.0], [10.0, 10.0]),
         start,
         start_set: SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&start_box)),
-        goal: Polytope::from_box(&rect(8.5, 9.5, 8.5, 9.5)),
-        goal_center: [9.0, 9.0],
+        goal: PolytopeGoal::from_box(&rect(8.5, 9.5, 8.5, 9.5), 8),
     };
 
     let mut planner = RobustRrt::new(problem, Config::default()).expect("the start set is safe");

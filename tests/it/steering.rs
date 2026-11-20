@@ -3,7 +3,7 @@
 use polyzonotope::{Intersection, SparsePolyZonotope, Zonotope};
 use rand_pcg::Pcg64Mcg;
 use robust_planning::{
-    Obstacles, Reach, Steer, WithSteering,
+    Obstacles, PolytopeGoal, Reach, Steer, WithSteering,
     robust_rrt::{Config, Problem, RobustRrt},
 };
 use sampling_planning::{UniformBox, rand_core::SeedableRng};
@@ -35,8 +35,7 @@ fn edges_from_a_steering_into_a_wall_are_still_proven_disjoint() {
         start_set: SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&interval_box(&square(
             start, 0.1,
         )))),
-        goal: polyzonotope::Polytope::from_box(&interval_box(&square([9.0, 9.0], 0.5))),
-        goal_center: [9.0, 9.0],
+        goal: PolytopeGoal::from_box(&interval_box(&square([9.0, 9.0], 0.5)), 8),
     };
     let mut planner = RobustRrt::new(problem, Config::default()).expect("the start set is safe");
     let mut rng = Pcg64Mcg::seed_from_u64(11);

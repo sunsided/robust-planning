@@ -3,7 +3,7 @@
 use nalgebra::DVector;
 use polyzonotope::{Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope};
 use robust_planning::{
-    Obstacles,
+    Obstacles, PolytopeGoal,
     robust_rrt::{Config, Problem, RobustRrt},
 };
 use sampling_planning::{Euclidean, UniformBox, Validity, ValidityChecker, discretized_motion};
@@ -75,8 +75,11 @@ pub fn planner(obstacles: &[Rect], start: [f64; 2], goal: [f64; 2]) -> Planner {
         sampler: UniformBox::new([0.0, 0.0], [10.0, 10.0]),
         start,
         start_set,
-        goal: Polytope::from_box(&interval_box(&square(goal, 0.5))),
-        goal_center: goal,
+        goal: PolytopeGoal::new(
+            Polytope::from_box(&interval_box(&square(goal, 0.5))),
+            goal,
+            8,
+        ),
     };
 
     RobustRrt::new(problem, Config::default()).expect("the start set is safe")

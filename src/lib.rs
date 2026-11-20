@@ -16,6 +16,10 @@
 //!   setpoint.
 //! - [`Obstacles`]: polytope obstacles, checked against reachable sets with optional
 //!   refinement by splitting.
+//! - [`Goal`]: a goal region tested against whole reachable sets. [`PolytopeGoal`] is a
+//!   convex polytope in H-representation; it answers
+//!   [`Containment::Inside`](polyzonotope::Containment::Inside) only when the set is proven
+//!   inside.
 //! - [`ReachChecker`]: a [`sampling_planning::ValidityChecker`] that runs a [`Reach`] model
 //!   along each motion, so `sampling-planning`'s planners only accept proven-safe edges.
 //! - [`RobustRrt`]: an RRT whose nodes carry the reachable set they are reached with.
@@ -36,6 +40,7 @@
 #![forbid(unsafe_code)]
 
 mod checker;
+mod goal;
 mod obstacles;
 mod reach;
 pub mod robust_rrt;
@@ -43,6 +48,7 @@ mod steer;
 mod verdict;
 
 pub use checker::ReachChecker;
+pub use goal::{Goal, PolytopeGoal};
 pub use obstacles::Obstacles;
 pub use reach::Reach;
 pub use robust_rrt::RobustRrt;

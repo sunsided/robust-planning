@@ -1,6 +1,7 @@
 //! Integration tests: Robust-RRT and the reachability checker on 2D worlds.
 
 mod affine;
+mod goal;
 mod simulate;
 mod steering;
 mod unknown;

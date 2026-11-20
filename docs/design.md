@@ -24,9 +24,16 @@ All sets are polyzonotope `SparsePolyZonotope`s. Zonotopes and boxes convert exa
 
 - **Obstacles** are convex `Polytope`s, for example `Polytope::from_box`, kept in
   `Obstacles` together with a split budget. Non-convex obstacles are unions of polytopes.
-- **The goal region** is a convex `Polytope`. A node reaches the goal only when its whole
-  reachable set is proven inside it (`Containment::Inside`). A node whose set merely
-  overlaps the goal does not count.
+- **The goal region** sits behind the `Goal<N>` trait, the set counterpart of
+  `sampling-planning`'s `GoalRegion`: `center()` is drawn for goal-biased samples, and
+  `containment(set)` answers polyzonotope's `Containment`. A node reaches the goal only
+  when its whole reachable set is proven inside it (`Containment::Inside`); `NotInside`
+  and `Unknown` count alike as not reached. A node whose set merely overlaps the goal does
+  not count. `PolytopeGoal` is the shipped implementation: a convex polytope in
+  H-representation plus a center and a split budget, and the default goal type of
+  `robust_rrt::Problem`. Its constructor rejects facets with non-finite entries or the
+  wrong dimension, because polyzonotope 0.2's `containment` never refutes a NaN facet and
+  would answer `Inside` for a set far outside it.
 - **Dynamics** sit behind the `Reach` trait (see below). `Reach::propagate` returns the
   sets that cover the whole edge under one control, plus the end set.
 - **Steering** sits behind the separate `Steer<N, C>` trait. For one edge, `Steer::steer`
@@ -156,8 +163,8 @@ One iteration:
 3. `propagate` the node's set under that control, to get the cover sets and the end set.
 4. Accept the edge only if `Obstacles::check_sets(cover)` is `Safe`. The cover spans the
    whole edge, every intermediate time step included. An empty cover is `Indeterminate`.
-5. Add the node with the end set. It reaches the goal if the end set is proven inside the
-   goal polytope.
+5. Add the node with the end set. It reaches the goal if `Goal::containment` proves the
+   end set inside the goal.
 
 Uncertainty builds up along a branch. Sets wider than a passage cannot get through it,
 even when a point robot can. `solve` stops at the first goal node. All randomness comes
@@ -173,7 +180,7 @@ separates it. Otherwise it splits the piece along its heaviest factor, up to the
 Sets that need a split are typical near obstacle corners: for example, a rotated square
 near a box corner is `Unknown` at budget 0 and `Disjoint` at budget 1. Budget `0` disables
 refinement. `ReachChecker` uses the same budget to prove end sets inside the tube, and
-`robust_rrt::Config::goal_splits` bounds the goal proof.
+`PolytopeGoal::max_splits` bounds the goal proof.
 
 Planned refinements:
 
@@ -198,7 +205,8 @@ Nothing here changes another repo. These are requests to the owning sessions.
 - **Node and edge enumeration** on `Rrt`/`RrtStar`, so that callers and tests can audit
   every accepted edge.
 - **Non-ball goal regions.** `GoalRegion` is a metric ball around a center. Robust goals
-  need a "set inside region" test, ideally a goal trait.
+  need a "set inside region" test, ideally a goal trait. This crate's `Goal` trait is the
+  local stand-in.
 - **Cost over sets** (later): RRT* rewiring changes a node's parent and therefore its
   reachable set. Rewiring must re-propagate and re-check the subtree.
 
@@ -207,6 +215,8 @@ Nothing here changes another repo. These are requests to the owning sessions.
 - **A certified witness** for `Intersection::Intersects`, so that an exact or
   under-approximated set can prove `Unsafe`.
 - **Under-approximations**, or an exactness flag, for the same reason.
+- **NaN facets in `containment`.** A facet with a NaN offset never refutes containment, so
+  a set far outside it is reported `Inside`. `PolytopeGoal` guards against this locally.
 - **Convex hull or time-interval enclosures** of two consecutive sets. Today the test model
   covers inter-sample motion with an axis-aligned box, which is coarse for rotated sets.
 

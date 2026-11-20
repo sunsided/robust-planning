@@ -4,7 +4,7 @@ use nalgebra::{DMatrix, DVector};
 use polyzonotope::{Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope};
 use rand_pcg::Pcg64Mcg;
 use robust_planning::{
-    Obstacles, Reach, ReachChecker, WithSteering,
+    Obstacles, PolytopeGoal, Reach, ReachChecker, WithSteering,
     robust_rrt::{Config, Problem, RobustRrt},
 };
 use sampling_planning::{
@@ -86,8 +86,7 @@ fn robust_rrt_adds_no_edge_on_unknown() {
             DVector::from_column_slice(&start),
             DMatrix::zeros(2, 0),
         )),
-        goal: Polytope::from_box(&IntervalBox(vec![Interval::new(-2.0, -1.0); 2])),
-        goal_center: [-1.5, -1.5],
+        goal: PolytopeGoal::from_box(&IntervalBox(vec![Interval::new(-2.0, -1.0); 2]), 8),
     };
     let mut planner = RobustRrt::new(problem, Config::default()).expect("start is safe");
     let mut rng = Pcg64Mcg::seed_from_u64(5);
