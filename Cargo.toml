@@ -24,6 +24,10 @@ rand_pcg = "0.10.2"
 name = "search"
 harness = false
 
+[[bench]]
+name = "robust_rrt_star"
+harness = false
+
 [features]
 # Outward rounding in polyzonotope. Safety verdicts are rigorous only with this feature.
 # Needs x86-64 Haswell or newer (see .cargo/config.toml) or AArch64.

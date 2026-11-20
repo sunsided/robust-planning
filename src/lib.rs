@@ -26,6 +26,9 @@
 //! - [`ReachChecker`]: a [`sampling_planning::ValidityChecker`] that runs a [`Reach`] model
 //!   along each motion, so `sampling-planning`'s planners only accept proven-safe edges.
 //! - [`RobustRrt`]: an RRT whose nodes carry the reachable set they are reached with.
+//! - [`RobustRrtStar`]: the RRT* variant of [`RobustRrt`]. Choose-parent and rewiring accept
+//!   only proven-safe edges, and a rewire re-propagates and re-proves the whole moved
+//!   subtree before it commits.
 //! - [`ReachSearch`]: A* over reachable-set nodes along a fixed set of motion primitives,
 //!   expanding only proven-safe edges, with deduplication on a lattice of nominal states.
 //!
@@ -50,6 +53,7 @@ mod node;
 mod obstacles;
 mod reach;
 pub mod robust_rrt;
+pub mod robust_rrt_star;
 pub mod search;
 mod steer;
 mod verdict;
@@ -60,6 +64,7 @@ pub use node::Node;
 pub use obstacles::Obstacles;
 pub use reach::{Reach, check_edge};
 pub use robust_rrt::RobustRrt;
+pub use robust_rrt_star::RobustRrtStar;
 pub use search::ReachSearch;
 pub use steer::{Steer, WithSteering};
 pub use verdict::{SafetyVerdict, Witness};

@@ -4,6 +4,7 @@ mod affine;
 mod goal;
 mod search;
 mod simulate;
+mod star;
 mod steering;
 mod unknown;
 mod witness;

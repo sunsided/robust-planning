@@ -5,6 +5,7 @@ use polyzonotope::{Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope
 use robust_planning::{
     Obstacles, PolytopeGoal,
     robust_rrt::{Config, Problem, RobustRrt},
+    robust_rrt_star::{Config as StarConfig, RobustRrtStar},
 };
 use sampling_planning::{Euclidean, UniformBox, Validity, ValidityChecker, discretized_motion};
 
@@ -110,4 +111,15 @@ impl ValidityChecker<Euclidean<2>> for PointChecker {
     fn check_motion(&self, space: &Euclidean<2>, from: &[f64; 2], to: &[f64; 2]) -> Validity {
         discretized_motion(space, from, to, 0.01, |state| self.check_state(state))
     }
+}
+
+/// The Robust RRT* type the tests use.
+pub type StarPlanner = RobustRrtStar<Affine<2>, UniformBox<2>, 2>;
+
+/// A Robust RRT* on the same world as [`planner`], with `gamma = 10` (above the RRT* bound
+/// of about 9.8 for the 10 x 10 world) and the radius capped at the model's 1.0 reach.
+pub fn star_planner(obstacles: &[Rect], start: [f64; 2], goal: [f64; 2]) -> StarPlanner {
+    let problem = planner(obstacles, start, goal).problem().clone();
+
+    RobustRrtStar::new(problem, StarConfig::new(10.0, 1.0)).expect("the start set is safe")
 }
