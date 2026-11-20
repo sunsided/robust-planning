@@ -437,6 +437,20 @@ fn proven_dedup_finds_the_same_optimum_and_stays_sound() {
     assert!((s.cost - h.cost).abs() < 1e-9);
     assert!(strict.nodes().len() >= hull.nodes().len());
     assert_every_edge_disjoint(&strict, &[]);
+
+    let default_tolerance = Config {
+        dedup: Dedup::proven(),
+        ..astar()
+    };
+    let mut tolerant = search(&[], [1.0, 1.0], [4.0, 2.0], default_tolerance);
+    let t = tolerant.solve().expect("the open world is solvable");
+
+    assert!((t.cost - h.cost).abs() < 1e-9);
+    assert!(
+        tolerant.nodes().len() <= strict.nodes().len(),
+        "the tolerance keeps no more nodes here"
+    );
+    assert_every_edge_disjoint(&tolerant, &[]);
 }
 
 #[test]

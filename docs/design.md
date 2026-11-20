@@ -235,7 +235,10 @@ A* optimality condition.
   Any tolerance from `1e-12` up merges them, and then the proof merges *more* than the
   hull test, whose exact bounds reject a hull that sticks out by one ULP. The dominance is
   then only true up to the tolerance, which, like all deduplication, affects completeness
-  and never safety.
+  and never safety. `Dedup::proven()` picks `1e-9` (`Dedup::PROVEN_TOLERANCE`), the value
+  chosen for the proven mode; an explicit `Dedup::Proven { tolerance }` still takes any
+  other. The overall default stays `Dedup::Hull`, the cheap test that works in every
+  dimension.
 - **Workspace bounds.** `search::Problem::bounds` is an optional box for nominal states.
   Successors outside it are dropped before their edge is checked, so an open world needs
   no framing walls to stay finite. With `Config::bounds_contain_sets` (opt-in) whole sets

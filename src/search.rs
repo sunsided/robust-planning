@@ -224,6 +224,33 @@ pub enum Dedup {
     },
 }
 
+impl Dedup {
+    /// The tolerance of [`Dedup::proven`]: merges sets that differ by rounding noise.
+    pub const PROVEN_TOLERANCE: f64 = 1e-9;
+
+    /// [`Dedup::Proven`] with the default tolerance [`Dedup::PROVEN_TOLERANCE`] (`1e-9`).
+    ///
+    /// Dominance then holds only up to `1e-9` along every axis: a merged node's set may
+    /// stick out of the covering set by that much. Like all deduplication this affects
+    /// completeness, never safety. Use `Dedup::Proven { tolerance }` for another value,
+    /// `0.0` for exact containment. The overall default stays [`Dedup::Hull`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use robust_planning::search::Dedup;
+    ///
+    /// assert_eq!(Dedup::proven(), Dedup::Proven { tolerance: 1e-9 });
+    /// assert_eq!(Dedup::default(), Dedup::Hull);
+    /// ```
+    #[must_use]
+    pub const fn proven() -> Self {
+        Self::Proven {
+            tolerance: Self::PROVEN_TOLERANCE,
+        }
+    }
+}
+
 impl Default for Config {
     /// A resolution of `1e-6` (merging only rounding noise), an infinite goal radius
     /// (uniform-cost search), at most 10 000 expansions, length costs, no subtree pruning
