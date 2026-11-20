@@ -18,7 +18,9 @@ needs x86-64 Haswell or newer (see `.cargo/config.toml`) or AArch64. See
 
 Pre-release, version 0.0.0. Milestone 1 works: a `ValidityChecker` adapter for
 `sampling-planning` and a Robust-RRT whose nodes carry reachable sets. Run
-`cargo run --example robust_rrt_2d`. The API will change.
+`cargo run --example robust_rrt_2d`. Steering (`Steer`, `WithSteering`), goals (`Goal`,
+`PolytopeGoal`) and certified collision witnesses (`Reach::certify_collision`) are
+pluggable. The API will change.
 
 ## License
 

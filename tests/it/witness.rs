@@ -44,7 +44,13 @@ impl Reach<2> for Overlap {
         initial.clone()
     }
 
-    fn certify_collision(&self, _: &SparsePolyZonotope, _: &Polytope) -> Option<Vec<f64>> {
+    fn certify_collision(
+        &self,
+        _: &SparsePolyZonotope,
+        _: &[f64; 2],
+        _: &SparsePolyZonotope,
+        _: &Polytope,
+    ) -> Option<Vec<f64>> {
         self.witness.clone()
     }
 }

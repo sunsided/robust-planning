@@ -97,7 +97,8 @@ the index of the cover set it lies in and the index of the obstacle. Without a w
 there is no `Unsafe`, only `Indeterminate`. The verdict is therefore `Clone` and
 `PartialEq`, no longer `Copy`, `Eq` or `Hash`.
 
-The witness comes from a trait hook, `Reach::certify_collision(set, obstacle)`, which
+The witness comes from a trait hook,
+`Reach::certify_collision(initial, control, set, obstacle)`, which
 defaults to `None`. Only the model knows whether its cover sets are exact or
 under-approximated, so the hook lives with the model. `check_edge` calls it only for edges
 that are not proven safe, in time order, and keeps the first point that passes a plain-`f64`
@@ -250,6 +251,11 @@ Nothing here changes another repo. These are requests to the owning sessions.
 
 ## Testing strategy
 
+- **Steering, goals and witnesses:** a steering that aims into a wall still yields only
+  proven-disjoint edges; `ReachChecker` is `Unknown` when steering stops short; goals that
+  answer `Unknown` or `NotInside` are never reached; `PolytopeGoal` rejects NaN facets and
+  never contains a set one ULP outside; `Unsafe` appears only with a hook witness that
+  passes the sanity check.
 - **Unit tests:**
   - the verdict mapping from `Intersection`;
   - the `and` lattice and the `Validity` mapping;

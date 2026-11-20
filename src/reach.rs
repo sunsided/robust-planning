@@ -36,6 +36,8 @@ pub trait Reach<const N: usize> {
 
     /// Certifies a state the real system reaches in `set` that lies inside `obstacle`.
     ///
+    /// `set` is one of the cover sets [`Reach::propagate`] produced from `initial` under
+    /// `control`, which identify the edge.
     /// The hook behind [`SafetyVerdict::Unsafe`]. Edge checks call it only for edges that
     /// are not proven safe, once per cover set and obstacle, and turn the first point it
     /// returns into a [`Witness`]. The default returns `None`, so such edges stay
@@ -50,8 +52,14 @@ pub trait Reach<const N: usize> {
     /// The returned point is sanity-checked in plain `f64` (inside `obstacle` and inside the
     /// interval hull of `set`) and dropped if it fails, which keeps the verdict
     /// `Indeterminate`. That check is a guard against hook bugs, not a proof.
-    fn certify_collision(&self, set: &SparsePolyZonotope, obstacle: &Polytope) -> Option<Vec<f64>> {
-        let _ = (set, obstacle);
+    fn certify_collision(
+        &self,
+        initial: &SparsePolyZonotope,
+        control: &Self::Control,
+        set: &SparsePolyZonotope,
+        obstacle: &Polytope,
+    ) -> Option<Vec<f64>> {
+        let _ = (initial, control, set, obstacle);
 
         None
     }
@@ -85,7 +93,8 @@ pub fn check_edge<R: Reach<N>, const N: usize>(
 
     let verdict = match obstacles.check_sets(cover) {
         SafetyVerdict::Safe => SafetyVerdict::Safe,
-        unproven => find_witness(reach, obstacles, cover).map_or(unproven, SafetyVerdict::Unsafe),
+        unproven => find_witness(reach, obstacles, initial, control, cover)
+            .map_or(unproven, SafetyVerdict::Unsafe),
     };
 
     (verdict, end)
@@ -96,6 +105,8 @@ pub fn check_edge<R: Reach<N>, const N: usize>(
 fn find_witness<R: Reach<N>, const N: usize>(
     reach: &R,
     obstacles: &Obstacles,
+    initial: &SparsePolyZonotope,
+    control: &R::Control,
     cover: &[SparsePolyZonotope],
 ) -> Option<Witness> {
     cover.iter().enumerate().find_map(|(set_index, set)| {
@@ -104,7 +115,7 @@ fn find_witness<R: Reach<N>, const N: usize>(
             .iter()
             .enumerate()
             .find_map(|(obstacle_index, obstacle)| {
-                let point = reach.certify_collision(set, obstacle)?;
+                let point = reach.certify_collision(initial, control, set, obstacle)?;
 
                 is_plausible(&point, set, obstacle).then_some(Witness {
                     point,

@@ -104,8 +104,15 @@ impl<R: Reach<N>, S, const N: usize> Reach<N> for WithSteering<R, S> {
 
     /// Forwards to the wrapped model, so pairing a model with a steering function keeps its
     /// collision certificates.
-    fn certify_collision(&self, set: &SparsePolyZonotope, obstacle: &Polytope) -> Option<Vec<f64>> {
-        self.reach.certify_collision(set, obstacle)
+    fn certify_collision(
+        &self,
+        initial: &SparsePolyZonotope,
+        control: &Self::Control,
+        set: &SparsePolyZonotope,
+        obstacle: &Polytope,
+    ) -> Option<Vec<f64>> {
+        self.reach
+            .certify_collision(initial, control, set, obstacle)
     }
 }
 
