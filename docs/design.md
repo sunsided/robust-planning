@@ -277,7 +277,42 @@ The cost is the nominal path length. The best cost never increases: new nodes on
 candidates, a commit only lowers the costs of one subtree, and no commit drops a goal node.
 No convergence to an optimum is claimed. RRT*'s asymptotic optimality argument assumes
 every cheaper rewire is taken; rejected rewires (a branch with a wider set), budget skips
-and the exact-arrival rule all break it. A cost that included the set size could prefer
+and the exact-arrival rule all break it.
+
+**When the argument carries over.** Let `E` be the set of nominal edges `(x, y)` with
+`|x - y| <= max_radius`, and let an edge be *proven* when `check_edge` returns `Safe` for it.
+RRT*'s proof (Karaman and Frazzoli 2011, Theorem 38) uses the obstacles only through the
+predicate "edge `(x, y)` is collision-free", which must depend on `x` and `y` alone, and
+uses every cheaper rewire. Both hold, and Robust RRT* is RRT* with "collision-free"
+replaced by "proven", if:
+
+1. **Unbounded budget.** `Config::unbounded` (`rewire_budget = usize::MAX`), so no rewire
+   is skipped.
+2. **Exact steering.** `steer(x, y)` ends exactly at `y` for every `|x - y| <= max_radius`,
+   so no rewire is rejected as `NotReached` and choose-parent sees every neighbor.
+3. **Path-independent proofs.** Whether `(x, y)` is proven, and the end set at `y`, depend
+   on `x` and `y` only, not on the branch that leads to `x`. This holds for a model whose
+   set at a node is a fixed function of its nominal state (a tracking tube, as
+   `ReachChecker` assumes), and fails for sets that grow along a branch. With it, a
+   re-propagated descendant has the same set as before, so no rewire is rejected as
+   `DescendantUnproven` or `GoalLost`.
+4. **The RRT* side conditions:** `gamma` above `RrtStarConfig::gamma_lower_bound` for the
+   sampled volume, a sampler with a density bounded below on the free space, and an
+   additive cost (both cost options are).
+5. **A robust optimum in the proven graph.** There is an optimal path whose edges stay
+   proven under small perturbations of their end points (clearance in the proven sense,
+   not only in the nominal one), and whose end node's set is proven inside the goal under
+   the same perturbations.
+
+Under 1 to 5 the best cost converges almost surely to the cost of that robust optimum.
+It is the optimum over proven edges, which is never below the nominal optimum and is
+strictly above it wherever the sets are wider than the clearance. If 3 fails, the tree
+still approaches the optimum of the rewires that commit, but no limit is claimed; the
+`Grow` unit-test model shows a cheaper branch that cannot be taken because its set is
+wider. The open-world test runs the unbounded mode, sees no skipped or rejected rewires
+and ends within 5 % of the straight-line cost.
+
+A cost that included the set size could prefer
 narrow sets; it is not implemented.
 
 `RobustRrtStar::run` does not stop at the first goal node, since later iterations keep

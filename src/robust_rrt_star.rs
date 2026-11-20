@@ -39,6 +39,15 @@
 //! a set wider, skipped because of [`Config::rewire_budget`], or impossible because the
 //! steering does not reach the node exactly.
 //!
+//! The argument carries over when all of these hold (see `docs/design.md` for the
+//! statement): the budget is unbounded ([`Config::unbounded`]); steering reaches every
+//! target within [`Config::max_radius`] exactly; whether an edge is proven safe, and the
+//! set it ends in, do not depend on the path to its parent (for example a model whose sets
+//! are a fixed tube around the nominal); and `gamma` is above the RRT* bound. Then no rewire
+//! is ever skipped or rejected for a reason other than its own edge, and the tree is RRT*
+//! on the graph of proven-safe edges. The optimum it approaches is the cheapest path made of
+//! such edges, with some clearance in that graph; it is not the nominal optimum.
+//!
 //! # Examples
 //!
 //! ```
@@ -147,6 +156,20 @@ impl Config {
             gamma,
             max_radius,
             rewire_budget: 64,
+        }
+    }
+
+    /// A config like [`Config::new`] but with an unbounded rewiring budget
+    /// ([`usize::MAX`] edge checks per iteration), so no cheaper rewire is ever skipped.
+    ///
+    /// This is the mode in which the RRT* optimality argument can carry over; see the
+    /// [module docs](self#optimality) for the remaining conditions. An iteration can then
+    /// re-prove the whole tree.
+    #[must_use]
+    pub const fn unbounded(gamma: f64, max_radius: f64) -> Self {
+        Self {
+            rewire_budget: usize::MAX,
+            ..Self::new(gamma, max_radius)
         }
     }
 }

@@ -7,7 +7,7 @@ use sampling_planning::rand_core::SeedableRng;
 
 use crate::{
     ITERATIONS, simulate,
-    world::{SLALOM, SPLITS, StarPlanner, planner, polytopes, star_planner},
+    world::{SLALOM, SPLITS, StarConfig, StarPlanner, planner, polytopes, star_planner},
 };
 
 /// Iterations of every Robust RRT* run.
@@ -148,4 +148,27 @@ fn same_seed_gives_the_same_tree() {
         assert_eq!(x.control, y.control);
         assert_eq!(x.set.interval_hull(), y.set.interval_hull());
     }
+}
+
+#[test]
+fn unbounded_mode_approaches_the_straight_line_in_an_open_world() {
+    let config = StarConfig::unbounded(10.0, 1.0);
+    let problem = star_planner(&[], [1.0, 1.0], [9.0, 9.0]).problem().clone();
+    let mut planner = StarPlanner::new(problem, config).expect("the start set is safe");
+
+    planner.run(STAR_ITERATIONS, &mut Pcg64Mcg::seed_from_u64(3));
+    let cost = planner.path().expect("an open world is solvable").cost;
+    let stats = planner.stats();
+    let straight = 8.0 * 2.0f64.sqrt();
+
+    assert_eq!(
+        stats.skipped_rewires, 0,
+        "an unbounded budget skips nothing"
+    );
+    assert_eq!(
+        stats.rejected_rewires, 0,
+        "no obstacle and no goal is ever lost"
+    );
+    assert!(stats.rewires > 0);
+    assert!(cost < straight * 1.05, "cost {cost} vs straight {straight}");
 }

@@ -5,7 +5,7 @@ use polyzonotope::{Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope
 use robust_planning::{
     Obstacles, PolytopeGoal,
     robust_rrt::{Config, Problem, RobustRrt},
-    robust_rrt_star::{Config as StarConfig, RobustRrtStar},
+    robust_rrt_star::RobustRrtStar,
 };
 use sampling_planning::{Euclidean, UniformBox, Validity, ValidityChecker, discretized_motion};
 
@@ -112,6 +112,8 @@ impl ValidityChecker<Euclidean<2>> for PointChecker {
         discretized_motion(space, from, to, 0.01, |state| self.check_state(state))
     }
 }
+
+pub use robust_planning::robust_rrt_star::Config as StarConfig;
 
 /// The Robust RRT* type the tests use.
 pub type StarPlanner = RobustRrtStar<Affine<2>, UniformBox<2>, 2>;
