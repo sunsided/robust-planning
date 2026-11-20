@@ -10,7 +10,7 @@ use criterion::Criterion;
 use polyzonotope::{Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope};
 use robust_planning::{
     Obstacles, PolytopeGoal,
-    search::{Config, GoalRadius, Problem, ReachSearch},
+    search::{Config, Dedup, GoalRadius, Problem, ReachSearch},
 };
 
 /// Runs every benchmark in this file with criterion's command-line flags.
@@ -18,6 +18,7 @@ fn main() {
     let mut criterion = Criterion::default().configure_from_args();
 
     bench_slalom(&mut criterion);
+    bench_open_proven(&mut criterion);
     criterion.final_summary();
 }
 
@@ -66,6 +67,33 @@ fn bench_slalom(criterion: &mut Criterion) {
     criterion.bench_function("reach_search_slalom", |b| {
         b.iter(|| {
             let mut search = ReachSearch::new(problem(), config).expect("valid problem");
+            black_box(search.solve())
+        });
+    });
+}
+
+/// Solves the open framed world from (1, 1) to (4, 2) with proven deduplication, which keeps
+/// many more nodes than the hull test.
+fn bench_open_proven(criterion: &mut Criterion) {
+    let config = Config {
+        goal_radius: GoalRadius::FromGoal,
+        dedup: Dedup::Proven,
+        ..Config::default()
+    };
+    let open = || {
+        let mut problem = problem();
+        problem.obstacles = Obstacles::new(
+            problem.obstacles.polytopes()[2..].to_vec(),
+            problem.obstacles.max_splits(),
+        );
+        problem.goal = PolytopeGoal::from_box(&rect(3.5, 4.5, 1.5, 2.5), 8);
+
+        problem
+    };
+
+    criterion.bench_function("reach_search_open_proven_dedup", |b| {
+        b.iter(|| {
+            let mut search = ReachSearch::new(open(), config).expect("valid problem");
             black_box(search.solve())
         });
     });

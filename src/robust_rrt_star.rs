@@ -30,7 +30,8 @@
 //!
 //! # Optimality
 //!
-//! The cost is the nominal path length, as in [`RobustRrt`](crate::RobustRrt). The cost of
+//! The cost is [`Config::cost`]: the nominal path length by default, as in
+//! [`RobustRrt`](crate::RobustRrt). The cost of
 //! [`RobustRrtStar::path`] never increases: new nodes only add goal candidates, a commit
 //! only lowers the costs of a subtree, and no commit drops a node from the goal.
 //!
@@ -41,9 +42,10 @@
 //!
 //! The argument carries over when all of these hold (see `docs/design.md` for the
 //! statement): the budget is unbounded ([`Config::unbounded`]); steering reaches every
-//! target within [`Config::max_radius`] exactly; whether an edge is proven safe, and the
-//! set it ends in, do not depend on the path to its parent (for example a model whose sets
-//! are a fixed tube around the nominal); and `gamma` is above the RRT* bound. Then no rewire
+//! target within [`Config::max_radius`] exactly; whether an edge is proven safe depends on
+//! its end points only, and the set it ends in on its end point alone (for example a model
+//! whose sets are a fixed tube around the nominal); `gamma` is above the RRT* bound; and
+//! the cost is [`Cost::Length`]. Then no rewire
 //! is ever skipped or rejected for a reason other than its own edge, and the tree is RRT*
 //! on the graph of proven-safe edges. The optimum it approaches is the cheapest path made of
 //! such edges, with some clearance in that graph; it is not the nominal optimum.

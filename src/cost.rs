@@ -35,6 +35,10 @@ pub enum Cost {
     /// costs less. A robustness-weighted cost: `weight` is length per unit of width.
     /// `weight` is finite and non-negative; `0` prices like [`Cost::Length`] up to the
     /// added zero.
+    ///
+    /// The width term is charged per edge, not per unit of length, so the same path cut
+    /// into more edges costs more: the cost also prefers fewer, longer edges. Because of
+    /// that, RRT*'s optimality argument does not carry over to this cost.
     WidthWeighted {
         /// Length units charged per unit of end-set width. Finite and non-negative.
         weight: f64,

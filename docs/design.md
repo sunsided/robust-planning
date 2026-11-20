@@ -313,15 +313,18 @@ replaced by "proven", if:
    is skipped.
 2. **Exact steering.** `steer(x, y)` ends exactly at `y` for every `|x - y| <= max_radius`,
    so no rewire is rejected as `NotReached` and choose-parent sees every neighbor.
-3. **Path-independent proofs.** Whether `(x, y)` is proven, and the end set at `y`, depend
-   on `x` and `y` only, not on the branch that leads to `x`. This holds for a model whose
-   set at a node is a fixed function of its nominal state (a tracking tube, as
-   `ReachChecker` assumes), and fails for sets that grow along a branch. With it, a
-   re-propagated descendant has the same set as before, so no rewire is rejected as
-   `DescendantUnproven` or `GoalLost`.
+3. **Path-independent proofs.** Whether `(x, y)` is proven depends on `x` and `y` only,
+   and the end set at `y` depends on `y` alone, not on the parent or the branch that
+   leads to it. This holds for a model whose set at a node is a fixed function of its
+   nominal state (a tracking tube, as `ReachChecker` assumes), and fails for sets that
+   grow along a branch. With it, a moved node and every re-propagated descendant keep
+   their sets, so no rewire is rejected as `DescendantUnproven` or `GoalLost`.
 4. **The RRT* side conditions:** `gamma` above `RrtStarConfig::gamma_lower_bound` for the
-   sampled volume, a sampler with a density bounded below on the free space, and an
-   additive cost (both cost options are).
+   sampled volume, a sampler with a density bounded below on the free space, and the
+   cost `Cost::Length`. `Cost::WidthWeighted` charges per edge, so the same path cut into
+   more edges costs more and the cost is not bounded by a multiple of the length; the
+   RRT* argument approximates the optimum with ever shorter edges, so it does not carry
+   over to that cost.
 5. **A robust optimum in the proven graph.** There is an optimal path whose edges stay
    proven under small perturbations of their end points (clearance in the proven sense,
    not only in the nominal one), and whose end node's set is proven inside the goal under
@@ -334,6 +337,9 @@ still approaches the optimum of the rewires that commit, but no limit is claimed
 `Grow` unit-test model shows a cheaper branch that cannot be taken because its set is
 wider. The open-world test runs the unbounded mode, sees no skipped or rejected rewires
 and ends within 5 % of the straight-line cost.
+
+`RobustRrtStar::run` does not stop at the first goal node, since later iterations keep
+lowering the cost. `stats()` counts committed, rejected and skipped rewires.
 
 ## Robustness-weighted cost: `Cost`
 
@@ -361,9 +367,6 @@ bound. With the weighted cost an edge's price depends on its parent's set, so:
 The width is a hull measure, not a proof of anything; it only orders paths. Using the
 mean width or the volume instead would be equally additive. The largest side was chosen
 because it is dimension-independent in scale and cheap.
-
-`RobustRrtStar::run` does not stop at the first goal node, since later iterations keep
-lowering the cost. `stats()` counts committed, rejected and skipped rewires.
 
 ## Proven set-in-set containment: `proven_within`
 
@@ -477,7 +480,23 @@ Nothing here changes another repo. These are requests to the owning sessions.
   against polyzonotope directly; Monte-Carlo runs along the returned path and other
   branches; the best cost never increases over 1500 iterations and ends at or below
   `RobustRrt`'s for seeds 0, 1 and 2 (an empirical check, not a theorem); same seed, same
-  tree.
+  tree; no zero-length edge. A stub steering that stops short is rejected as
+  `NotReached`. The unbounded mode in an open world skips and rejects nothing and ends
+  within 5 % of the straight line.
+- **Weighted cost:** `NotCheaper` and `CostIncreased` rejections on the hand-built tree;
+  weighted A* equals weighted uniform cost on the slalom, weight 0 equals length, and
+  the path cost matches a recomputation; weighted Robust RRT* never increases its cost
+  and every stored cost equals its parent's plus the edge.
+- **Search options:** a bounded unframed search exhausts inside its bounds; invalid
+  bounds are rejected; `GoalRadius::FromGoal` matches uniform cost with fewer
+  expansions and errors on a goal without a radius; `PolytopeGoal::radius` bounds the box.
+  Pruning: unit tests on hand-pushed nodes (with and without the option, and the ancestor
+  guard); on the slalom it gives the same path, every edge audited, Monte-Carlo along it.
+- **Proven containment:** a box whose hull fits a diamond's hull but whose corners stick
+  out is not proven inside, smaller boxes are; touching and differently represented
+  copies are not, equal representations are; segments, shared factors, 3D and
+  non-finite inputs are left undecided; offsets are rounded down. `Dedup::Proven` keeps a
+  node the hull test wrongly drops and finds the lattice optimum in an open world.
 - **Unit tests:**
   - the verdict mapping from `Intersection`;
   - the `and` lattice and the `Validity` mapping;
@@ -516,7 +535,10 @@ through polyzonotope's harness; fuzzing of the checker inputs.
    escalation.
 4. **Done in this draft:** the reachability-guided best-first search (`ReachSearch`) and
    Robust RRT* with transactional re-propagation on rewiring (`RobustRrtStar`), in a local
-   tree. **Open:** reusing `sampling-planning` trees once they carry per-node payloads.
+   tree, with an unbounded mode, a robustness-weighted cost, workspace bounds, a derived
+   goal radius, opt-in subtree pruning and opt-in proven planar deduplication.
+   **Open:** reusing `sampling-planning` trees once they carry per-node payloads; proven
+   containment beyond the plane.
 5. Safety-constrained trajectory planning: optimize nominal controls under proven set
    constraints. Fail-safe maneuvers.
 6. Optional `temporal-control` adapter for timed plans (spaceflight track).

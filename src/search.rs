@@ -550,8 +550,12 @@ where
         cost: f64,
     ) -> bool {
         self.cells.get(&self.cell(nominal)).is_some_and(|ids| {
+            // Skip superseded nodes: one superseded by dominance is covered by its superseder,
+            // which is checked in its place, and a pruned descendant must not drop the node
+            // that regrows it.
             ids.iter().any(|&e| {
-                self.costs[e] <= cost
+                !self.superseded[e]
+                    && self.costs[e] <= cost
                     && self.covers((&self.nodes[e].set, &self.hulls[e]), (set, hull))
             })
         })

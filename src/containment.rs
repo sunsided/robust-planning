@@ -15,7 +15,7 @@ use polyzonotope::{Containment, Halfspace, Polytope, SparsePolyZonotope};
 ///
 /// Answers `false` unless both sets are planar and `outer` is a zonotope in sparse form:
 /// every dependent monomial is a single factor to the power one, and no factor appears in
-/// two monomials. Other shapes are not decided, which only costs a deduplication. The proof
+/// two monomials, with a finite center, finite generators and finite facet offsets. Other shapes are not decided, which only costs a deduplication. The proof
 /// is rigorous with the `sound` feature; without it, the final set-in-polytope test is up
 /// to floating-point rounding, as every check in this crate.
 ///
@@ -40,9 +40,16 @@ pub fn proven_within(
         return false;
     }
 
+    let finite_inputs = outer.center().iter().all(|x| x.is_finite())
+        && generators.iter().flatten().all(|x| x.is_finite());
     let polytope = inner_polytope(outer.center(), &generators);
+    // An infinite offset cuts nothing and a NaN one is never refuted, so either would void
+    // the proof.
+    let finite_offsets = polytope.facets.iter().all(|h| h.offset.is_finite());
 
-    inner.containment(&polytope, max_splits) == Containment::Inside
+    finite_inputs
+        && finite_offsets
+        && inner.containment(&polytope, max_splits) == Containment::Inside
 }
 
 /// Whether both sets have the same center, generators and exponents, entry for entry.
@@ -239,5 +246,21 @@ mod tests {
             assert!(bound < exact + sum, "strictly below the f64 value");
             assert!(exact + sum - bound < 1e-14, "but only by rounding error");
         }
+    }
+
+    #[test]
+    fn non_finite_outer_sets_are_not_decided() {
+        let huge = zonotope([0.0, 0.0], &[[1e308, 1e308], [1e308, -1e308]]);
+        let nan = zonotope([0.0, 0.0], &[[f64::NAN, 1.0], [1.0, 0.0]]);
+        let small = square([0.0, 0.0], 0.1);
+
+        assert!(
+            !proven_within(&small, &huge, 4),
+            "overflowing offsets cut nothing"
+        );
+        assert!(
+            !proven_within(&small, &nan, 4),
+            "NaN facets are never refuted"
+        );
     }
 }
