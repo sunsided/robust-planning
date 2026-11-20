@@ -3,7 +3,7 @@
 use polyzonotope::{Intersection, SparsePolyZonotope, Zonotope};
 use rand_pcg::Pcg64Mcg;
 use robust_planning::{
-    Obstacles, PolytopeGoal, Reach,
+    Cost, Obstacles, PolytopeGoal, Reach,
     search::{Config, Problem, ReachSearch},
 };
 use sampling_planning::rand_core::SeedableRng;
@@ -213,4 +213,50 @@ fn budget_stop_can_be_resumed() {
     }
 
     assert!(search.goal_node().is_some());
+}
+
+#[test]
+fn width_weighted_cost_is_optimal_with_and_without_the_heuristic() {
+    let weighted = Cost::WidthWeighted { weight: 2.0 };
+    let solve = |config: Config| {
+        let mut search = search(&SLALOM, [1.0, 1.0], [9.0, 9.0], config);
+        let path = search.solve().expect("the slalom is solvable");
+
+        (search, path)
+    };
+    let (search, astar_path) = solve(Config {
+        cost: weighted,
+        ..astar()
+    });
+    let (_, uniform_path) = solve(Config {
+        cost: weighted,
+        ..Config::default()
+    });
+    let (_, length_path) = solve(astar());
+    let (_, zero_path) = solve(Config {
+        cost: Cost::WidthWeighted { weight: 0.0 },
+        ..astar()
+    });
+
+    assert!((astar_path.cost - uniform_path.cost).abs() < 1e-9);
+    assert!(astar_path.cost > length_path.cost, "widths are charged");
+    assert_eq!(
+        zero_path.cost, length_path.cost,
+        "weight 0 prices like length"
+    );
+
+    let goal = search.goal_node().expect("solved");
+    let ids = search.branch(goal);
+    let recomputed: f64 = ids
+        .windows(2)
+        .map(|pair| {
+            let (from, to) = (&search.nodes()[pair[0]], &search.nodes()[pair[1]]);
+            let length = ((to.nominal[0] - from.nominal[0]).powi(2)
+                + (to.nominal[1] - from.nominal[1]).powi(2))
+            .sqrt();
+
+            weighted.edge(length, &to.set)
+        })
+        .sum();
+    assert!((recomputed - astar_path.cost).abs() < 1e-9);
 }

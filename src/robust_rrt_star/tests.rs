@@ -4,7 +4,7 @@ use polyzonotope::{Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope
 use sampling_planning::{StraightLine, UniformBox};
 
 use super::{Config, Problem, Rejection, RobustRrtStar};
-use crate::{Obstacles, PolytopeGoal, Reach, WithSteering};
+use crate::{Cost, Obstacles, PolytopeGoal, Reach, WithSteering};
 
 /// How much the half width of the set grows on every edge.
 const GROWTH: f64 = 0.1;
@@ -82,6 +82,11 @@ struct Tree {
 /// A planner around `obstacles` with `goal`, a start set of half width 0.05 at the origin,
 /// and the tree of [`Tree`] built by hand.
 fn hand_built(obstacles: Vec<Polytope>, goal: &IntervalBox) -> (Planner, Tree) {
+    hand_built_with(obstacles, goal, Cost::Length)
+}
+
+/// [`hand_built`] with edges priced by `cost`.
+fn hand_built_with(obstacles: Vec<Polytope>, goal: &IntervalBox, cost: Cost) -> (Planner, Tree) {
     let problem = Problem {
         reach: WithSteering::new(Grow, StraightLine::new(10.0)),
         obstacles: Obstacles::new(obstacles, 4),
@@ -90,7 +95,11 @@ fn hand_built(obstacles: Vec<Polytope>, goal: &IntervalBox) -> (Planner, Tree) {
         start_set: set(&square([0.0, 0.0], 0.05)),
         goal: PolytopeGoal::from_box(goal, 4),
     };
-    let mut planner = Planner::new(problem, Config::new(1.0, 1.0)).expect("valid");
+    let config = Config {
+        cost,
+        ..Config::new(1.0, 1.0)
+    };
+    let mut planner = Planner::new(problem, config).expect("valid");
 
     let up = attach(&mut planner, 0, [0.0, 1.0]);
     let v = attach(&mut planner, up, [1.0, 1.0]);
@@ -314,9 +323,43 @@ fn invalid_configs_are_rejected() {
     );
     assert_eq!(
         error(Config {
+            cost: Cost::WidthWeighted { weight: -0.1 },
+            ..base
+        }),
+        Some(Error::InvalidCostWeight)
+    );
+    assert_eq!(
+        error(Config {
             max_radius: f64::INFINITY,
             ..base
         }),
         None
+    );
+}
+
+#[test]
+fn a_weighted_rewire_that_makes_a_descendant_dearer_is_rejected() {
+    // Width costs 0.3 per unit: v gets cheaper through p (2.134 < 2.24), but d's wider set
+    // makes it dearer (3.464 > 3.45).
+    let weighted = Cost::WidthWeighted { weight: 0.3 };
+    let (mut planner, tree) = hand_built_with(Vec::new(), &far_goal(), weighted);
+
+    assert_eq!(
+        rewire(&mut planner, tree.v, tree.p, 64),
+        Err(Rejection::CostIncreased)
+    );
+}
+
+#[test]
+fn a_weighted_rewire_whose_wider_set_is_not_cheaper_is_rejected() {
+    // At 0.5 per unit, v through p costs 2.614, more than its 2.4 now, although the nominal
+    // length alone would be shorter.
+    let weighted = Cost::WidthWeighted { weight: 0.5 };
+    let (mut planner, tree) = hand_built_with(Vec::new(), &far_goal(), weighted);
+
+    assert!((planner.costs[tree.v] - 2.4).abs() < 1e-9);
+    assert_eq!(
+        rewire(&mut planner, tree.v, tree.p, 64),
+        Err(Rejection::NotCheaper)
     );
 }

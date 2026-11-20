@@ -95,7 +95,9 @@ use std::collections::{BinaryHeap, HashMap};
 use polyzonotope::{Containment, IntervalBox, SparsePolyZonotope};
 use sampling_planning::{Euclidean, Path, StateSpace};
 
-use crate::{Goal, Node, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge, node};
+use crate::{
+    Cost, Goal, Node, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge, node,
+};
 
 /// Everything [`ReachSearch`] needs to know about the world.
 ///
@@ -137,6 +139,9 @@ pub struct Config {
     pub goal_radius: f64,
     /// The most nodes [`ReachSearch::solve`] expands before giving up.
     pub max_expansions: usize,
+    /// How an edge is priced; `g` sums it. [`Cost::Length`] by default. Every option is at
+    /// least the nominal length, so the heuristic stays admissible.
+    pub cost: Cost,
 }
 
 impl Default for Config {
@@ -147,6 +152,7 @@ impl Default for Config {
             resolution: 1e-6,
             goal_radius: f64::INFINITY,
             max_expansions: 10_000,
+            cost: Cost::Length,
         }
     }
 }
@@ -160,6 +166,8 @@ pub enum Error {
     ResolutionOutOfRange,
     /// [`Config::goal_radius`] is negative or NaN.
     GoalRadiusOutOfRange,
+    /// The weight of [`Config::cost`] is negative or not finite.
+    InvalidCostWeight,
 }
 
 impl fmt::Display for Error {
@@ -168,6 +176,7 @@ impl fmt::Display for Error {
             Self::StartNotSafe(verdict) => write!(f, "start set is not proven safe ({verdict:?})"),
             Self::ResolutionOutOfRange => f.write_str("resolution must be positive and finite"),
             Self::GoalRadiusOutOfRange => f.write_str("goal radius must be non-negative"),
+            Self::InvalidCostWeight => f.write_str("cost weight must be finite and non-negative"),
         }
     }
 }
@@ -217,7 +226,7 @@ pub struct ReachSearch<R: Reach<N>, const N: usize, G = PolytopeGoal<N>> {
     config: Config,
     /// Search-tree nodes by id; node `0` is the root.
     nodes: Vec<Node<R::Control, N>>,
-    /// Nominal path length from the root, by node id.
+    /// Cost from the root by node id; see [`Config::cost`].
     costs: Vec<f64>,
     /// Interval hull of each node's set, by node id; used for deduplication.
     hulls: Vec<IntervalBox>,
@@ -247,6 +256,7 @@ where
     ///
     /// - [`Error::ResolutionOutOfRange`] if the resolution is not positive and finite.
     /// - [`Error::GoalRadiusOutOfRange`] if the goal radius is negative or NaN.
+    /// - [`Error::InvalidCostWeight`] if the cost weight is negative or not finite.
     /// - [`Error::StartNotSafe`] if the start set is not proven disjoint from every obstacle.
     pub fn new(problem: Problem<R, N, G>, config: Config) -> Result<Self, Error> {
         if !(config.resolution.is_finite() && config.resolution > 0.0) {
@@ -255,6 +265,10 @@ where
 
         if config.goal_radius.is_nan() || config.goal_radius < 0.0 {
             return Err(Error::GoalRadiusOutOfRange);
+        }
+
+        if !config.cost.is_valid() {
+            return Err(Error::InvalidCostWeight);
         }
 
         let verdict = problem.obstacles.check_set(&problem.start_set);
@@ -326,7 +340,7 @@ where
         &self.nodes
     }
 
-    /// The nominal path length from the root to `node`.
+    /// The cost from the root to `node`: the nominal path length with [`Cost::Length`].
     ///
     /// # Panics
     ///
@@ -373,10 +387,17 @@ where
 
     /// The nominal path to the goal node, or `None` if the goal was not reached yet.
     ///
-    /// The cost is the Euclidean length of the nominal path.
+    /// The cost is [`ReachSearch::cost`] of the goal node. With [`Cost::Length`] that is the
+    /// Euclidean length of the nominal path, bit for bit.
     #[must_use]
     pub fn path(&self) -> Option<Path<[f64; N]>> {
-        Some(node::nominal_path(&self.nodes, self.goal_node?))
+        let goal = self.goal_node?;
+        let states = node::nominal_path(&self.nodes, goal).states;
+
+        Some(Path {
+            states,
+            cost: self.costs[goal],
+        })
     }
 
     /// Generates every proven-safe, non-dominated successor of node `id`.
@@ -420,7 +441,7 @@ where
             return None;
         }
 
-        let cost = self.costs[id] + length;
+        let cost = self.costs[id] + self.config.cost.edge(length, &set);
         let hull = set.interval_hull();
 
         if self.is_dominated(&nominal, &hull, cost) {

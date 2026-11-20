@@ -2,7 +2,7 @@
 
 use polyzonotope::Intersection;
 use rand_pcg::Pcg64Mcg;
-use robust_planning::Reach;
+use robust_planning::{Cost, Reach};
 use sampling_planning::rand_core::SeedableRng;
 
 use crate::{
@@ -171,4 +171,43 @@ fn unbounded_mode_approaches_the_straight_line_in_an_open_world() {
     );
     assert!(stats.rewires > 0);
     assert!(cost < straight * 1.05, "cost {cost} vs straight {straight}");
+}
+
+#[test]
+fn width_weighted_cost_never_increases_and_matches_the_tree() {
+    let weighted = Cost::WidthWeighted { weight: 2.0 };
+    let config = StarConfig {
+        cost: weighted,
+        ..StarConfig::new(10.0, 1.0)
+    };
+    let problem = star_planner(&SLALOM, [1.0, 1.0], [9.0, 9.0])
+        .problem()
+        .clone();
+    let mut planner = StarPlanner::new(problem, config).expect("the start set is safe");
+    let mut rng = Pcg64Mcg::seed_from_u64(4);
+    let mut costs = Vec::new();
+
+    for _ in 0..STAR_ITERATIONS {
+        planner.step(&mut rng);
+        costs.extend(planner.path().map(|path| path.cost));
+    }
+
+    assert!(!costs.is_empty(), "the slalom is solvable");
+    assert!(
+        costs.windows(2).all(|pair| pair[1] <= pair[0]),
+        "the cost went up"
+    );
+
+    for (id, node) in planner.nodes().iter().enumerate().skip(1) {
+        let parent = node.parent.expect("non-root");
+        let from = planner.nodes()[parent].nominal;
+        let length =
+            ((node.nominal[0] - from[0]).powi(2) + (node.nominal[1] - from[1]).powi(2)).sqrt();
+        let expected = planner.cost(parent) + weighted.edge(length, &node.set);
+
+        assert!(
+            (planner.cost(id) - expected).abs() < 1e-9,
+            "node {id} keeps a stale cost"
+        );
+    }
 }

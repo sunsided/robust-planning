@@ -17,6 +17,8 @@
 //!   with a steering function through [`WithSteering`]; `sampling-planning`'s
 //!   [`StraightLine`](sampling_planning::StraightLine) steers models whose control is a
 //!   setpoint.
+//! - [`Cost`]: how planners price an edge: the nominal length, or the length plus a weight
+//!   times the width of the edge's end set (a robustness-weighted cost).
 //! - [`Obstacles`]: polytope obstacles, checked against reachable sets with optional
 //!   refinement by splitting.
 //! - [`Goal`]: a goal region tested against whole reachable sets. [`PolytopeGoal`] is a
@@ -48,6 +50,7 @@
 #![forbid(unsafe_code)]
 
 mod checker;
+mod cost;
 mod goal;
 mod node;
 mod obstacles;
@@ -59,6 +62,7 @@ mod steer;
 mod verdict;
 
 pub use checker::ReachChecker;
+pub use cost::Cost;
 pub use goal::{Goal, PolytopeGoal};
 pub use node::Node;
 pub use obstacles::Obstacles;

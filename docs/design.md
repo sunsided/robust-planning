@@ -202,8 +202,9 @@ set and kept only if `check_edge` proves it `Safe`, exactly as in `RobustRrt`. A
 reaches the goal when it is *popped* with its set proven inside the goal, which is the
 A* optimality condition.
 
-- **Cost** `g` is the nominal path length. Zero-length edges are skipped, since they could
-  repeat at no cost.
+- **Cost** `g` sums `Config::cost` over the edges: the nominal length by default, or the
+  robustness-weighted cost (below). Zero-length edges are skipped, since they could repeat
+  at no cost.
 - **Heuristic** `h(x) = max(0, |x - goal.center()| - goal_radius)`. It is consistent for
   Euclidean edge costs. It is admissible if every node whose set is proven inside the goal
   has its nominal state within `goal_radius` of the center. The default radius is
@@ -273,8 +274,9 @@ it throws away tree that took checks to build.
 
 ### Cost and optimality
 
-The cost is the nominal path length. The best cost never increases: new nodes only add goal
-candidates, a commit only lowers the costs of one subtree, and no commit drops a goal node.
+The cost is `Config::cost`, the nominal path length by default. The best cost never
+increases: new nodes only add goal candidates, a commit only lowers the costs of one
+subtree, and no commit drops a goal node.
 No convergence to an optimum is claimed. RRT*'s asymptotic optimality argument assumes
 every cheaper rewire is taken; rejected rewires (a branch with a wider set), budget skips
 and the exact-arrival rule all break it.
@@ -312,8 +314,32 @@ still approaches the optimum of the rewires that commit, but no limit is claimed
 wider. The open-world test runs the unbounded mode, sees no skipped or rejected rewires
 and ends within 5 % of the straight-line cost.
 
-A cost that included the set size could prefer
-narrow sets; it is not implemented.
+## Robustness-weighted cost: `Cost`
+
+`Cost` prices one edge, for `RobustRrtStar` (`robust_rrt_star::Config::cost`) and
+`ReachSearch` (`search::Config::cost`):
+
+- `Cost::Length`, the default: the nominal edge length. Costs summed from the root equal
+  the nominal path length bit for bit, so earlier results are unchanged.
+- `Cost::WidthWeighted { weight }`: the length plus `weight` times the width of the edge's
+  end set, the largest side of its interval hull. A path whose sets stay narrow keeps
+  more margin to the obstacles that bounded the proof, and costs less. `weight` is finite
+  and non-negative; the constructors reject anything else.
+
+Both costs are additive and never below the nominal length, so the A* heuristic stays
+admissible and consistent, and RRT*'s length bound `cost(parent) + |edge|` stays a lower
+bound. With the weighted cost an edge's price depends on its parent's set, so:
+
+- choose-parent tries candidates by that lower bound and proves each until the bound
+  reaches the best proven cost;
+- a rewire recomputes the costs of the whole moved subtree from the new sets, and is
+  rejected as `NotCheaper` if the node itself does not get cheaper, or as `CostIncreased`
+  if any node below it gets more expensive. Costs therefore still only go down, and the
+  best cost still never increases.
+
+The width is a hull measure, not a proof of anything; it only orders paths. Using the
+mean width or the volume instead would be equally additive. The largest side was chosen
+because it is dimension-independent in scale and cheap.
 
 `RobustRrtStar::run` does not stop at the first goal node, since later iterations keep
 lowering the cost. `stats()` counts committed, rejected and skipped rewires.

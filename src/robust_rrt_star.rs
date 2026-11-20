@@ -118,7 +118,7 @@ use sampling_planning::{
 };
 
 pub use crate::robust_rrt::Problem;
-use crate::{Goal, Node, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge, node};
+use crate::{Cost, Goal, Node, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge, node};
 
 /// Settings for [`RobustRrtStar`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -144,6 +144,11 @@ pub struct Config {
     /// not fit in what is left of the budget is skipped, so one iteration never runs more
     /// than this many rewiring checks. `0` disables rewiring.
     pub rewire_budget: usize,
+    /// How an edge is priced. [`Cost::Length`] by default.
+    ///
+    /// With [`Cost::WidthWeighted`], moving a subtree changes the edge costs inside it, so
+    /// a rewire is also rejected if any node of the subtree would get more expensive.
+    pub cost: Cost,
 }
 
 impl Config {
@@ -156,6 +161,7 @@ impl Config {
             gamma,
             max_radius,
             rewire_budget: 64,
+            cost: Cost::Length,
         }
     }
 
@@ -185,6 +191,8 @@ pub enum Error {
     InvalidGamma,
     /// [`Config::max_radius`] is not positive.
     InvalidMaxRadius,
+    /// The weight of [`Config::cost`] is negative or not finite.
+    InvalidCostWeight,
 }
 
 impl fmt::Display for Error {
@@ -194,6 +202,7 @@ impl fmt::Display for Error {
             Self::GoalBiasOutOfRange => f.write_str("goal bias must be in [0, 1]"),
             Self::InvalidGamma => f.write_str("gamma must be positive and finite"),
             Self::InvalidMaxRadius => f.write_str("max radius must be positive"),
+            Self::InvalidCostWeight => f.write_str("cost weight must be finite and non-negative"),
         }
     }
 }
@@ -206,8 +215,9 @@ pub struct Stats {
     /// Rewires that were proven and committed.
     pub rewires: usize,
     /// Rewires that were tried and rejected: the edge to the new parent or an edge in the
-    /// subtree was not proven safe, a goal node would have lost the goal, or the steering
-    /// did not reach the node exactly.
+    /// subtree was not proven safe, a goal node would have lost the goal, the steering
+    /// did not reach the node exactly, or (with [`Cost::WidthWeighted`]) the new sets made
+    /// the node not cheaper or a descendant more expensive.
     pub rejected_rewires: usize,
     /// Rewires skipped because their subtree did not fit in the remaining
     /// [`Config::rewire_budget`].
@@ -229,6 +239,12 @@ enum Rejection {
     DescendantUnproven,
     /// A node of the subtree that reached the goal would no longer be proven inside it.
     GoalLost,
+    /// With its new set the node is not cheaper after all (only with
+    /// [`Cost::WidthWeighted`]).
+    NotCheaper,
+    /// A node below the moved one would get more expensive (only with
+    /// [`Cost::WidthWeighted`]).
+    CostIncreased,
 }
 
 /// A proven edge into a node that is not in the tree yet.
@@ -239,6 +255,18 @@ struct Edge<C> {
     control: C,
     /// The end set, which becomes the new node's set.
     set: SparsePolyZonotope,
+    /// The cost of the new node through this edge.
+    cost: f64,
+}
+
+/// The proven outcome of a rewire, by subtree entry.
+struct Proven {
+    /// The re-propagated set of every node.
+    sets: Vec<SparsePolyZonotope>,
+    /// The new cost of every node.
+    costs: Vec<f64>,
+    /// Whether every node's new set is proven inside the goal.
+    in_goal: Vec<bool>,
 }
 
 /// The Robust RRT* planner.
@@ -253,7 +281,7 @@ pub struct RobustRrtStar<R: Reach<N>, Sa, const N: usize, G = PolytopeGoal<N>> {
     config: Config,
     /// Tree nodes by id; node `0` is the root. Ids never change.
     nodes: Vec<Node<R::Control, N>>,
-    /// Nominal path length from the root to each node, summed from the root down.
+    /// Cost from the root to each node, summed from the root down; see [`Config::cost`].
     costs: Vec<f64>,
     /// Child ids of each node, in no particular order.
     children: Vec<Vec<usize>>,
@@ -357,7 +385,7 @@ where
         &self.nodes
     }
 
-    /// The nominal path length from the root to `node`.
+    /// The cost from the root to `node`: the nominal path length with [`Cost::Length`].
     ///
     /// # Panics
     ///
@@ -401,11 +429,17 @@ where
     /// The nominal path to [`RobustRrtStar::goal_node`], or `None` if the goal was not
     /// reached yet.
     ///
-    /// The cost is the Euclidean length of the nominal path; it equals
-    /// [`RobustRrtStar::cost`] of the goal node.
+    /// The cost is [`RobustRrtStar::cost`] of the goal node. With [`Cost::Length`] that is
+    /// the Euclidean length of the nominal path, bit for bit.
     #[must_use]
     pub fn path(&self) -> Option<Path<[f64; N]>> {
-        Some(node::nominal_path(&self.nodes, self.goal_node()?))
+        let goal = self.goal_node()?;
+        let states = node::nominal_path(&self.nodes, goal).states;
+
+        Some(Path {
+            states,
+            cost: self.costs[goal],
+        })
     }
 
     /// Draws the goal center with the configured probability, otherwise a sampler state.
@@ -443,12 +477,14 @@ where
             &self.nodes[parent].set,
             &control,
         )?;
+        let cost = self.costs[parent] + self.config.cost.edge(length, &set);
 
         Some((
             Edge {
                 parent,
                 control,
                 set,
+                cost,
             },
             nominal,
         ))
@@ -465,26 +501,36 @@ where
 
     /// The cheapest parent for a node at `nominal` among `fallback.parent` and `near`.
     ///
-    /// `fallback` is already proven. Other candidates are tried in order of cost, and only
-    /// if they are cheaper; the first one with a proven edge wins.
+    /// `fallback` is already proven. Other candidates are tried in order of their lower
+    /// bound `cost + length` (which is their cost with [`Cost::Length`]), and only while that
+    /// bound is below the best proven cost so far.
     fn choose_parent(
         &mut self,
         fallback: Edge<R::Control>,
         nominal: &[f64; N],
         near: &[usize],
     ) -> Edge<R::Control> {
-        let bound = self.cost_via(fallback.parent, nominal);
         let mut candidates: Vec<(f64, usize)> = near
             .iter()
-            .map(|&id| (self.cost_via(id, nominal), id))
-            .filter(|&(cost, id)| cost < bound && id != fallback.parent)
+            .map(|&id| (self.length_bound(id, nominal), id))
+            .filter(|&(bound, id)| bound < fallback.cost && id != fallback.parent)
             .collect();
         candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let mut best = fallback;
 
-        candidates
-            .into_iter()
-            .find_map(|(_, id)| self.connect(id, nominal))
-            .unwrap_or(fallback)
+        for (bound, id) in candidates {
+            if bound >= best.cost {
+                break;
+            }
+
+            if let Some(edge) = self.connect(id, nominal)
+                && edge.cost < best.cost
+            {
+                best = edge;
+            }
+        }
+
+        best
     }
 
     /// Tries to move every node in `near` under the new node `id` when that is cheaper,
@@ -493,7 +539,7 @@ where
         let mut budget = self.config.rewire_budget;
 
         for &node in near {
-            if self.cost_via(id, &self.nodes[node].nominal) >= self.costs[node] {
+            if self.length_bound(id, &self.nodes[node].nominal) >= self.costs[node] {
                 continue;
             }
 
@@ -525,8 +571,18 @@ where
             .exact_control(parent, &self.nodes[node].nominal)
             .ok_or(Rejection::NotReached)?;
         let sets = self.prove_subtree(parent, &control, &subtree, budget)?;
+        let costs = self.subtree_costs(parent, &subtree, &sets)?;
         let in_goal = self.goal_flags(&subtree, &sets)?;
-        self.commit(parent, control, &subtree, sets, &in_goal);
+        self.commit(
+            parent,
+            control,
+            &subtree,
+            Proven {
+                sets,
+                costs,
+                in_goal,
+            },
+        );
 
         Ok(())
     }
@@ -584,6 +640,41 @@ where
         Ok(sets)
     }
 
+    /// The cost of every node in `subtree` with the new `sets`, the subtree root under
+    /// `parent`, or a rejection if the root is not cheaper or a node below it gets more
+    /// expensive.
+    fn subtree_costs(
+        &self,
+        parent: usize,
+        subtree: &[(usize, usize)],
+        sets: &[SparsePolyZonotope],
+    ) -> Result<Vec<f64>, Rejection> {
+        let mut costs: Vec<f64> = Vec::with_capacity(subtree.len());
+
+        for (entry, (&(id, parent_entry), set)) in subtree.iter().zip(sets).enumerate() {
+            let (from, base) = if entry == 0 {
+                (parent, self.costs[parent])
+            } else {
+                (subtree[parent_entry].0, costs[parent_entry])
+            };
+            let length =
+                Euclidean::<N>.distance(&self.nodes[from].nominal, &self.nodes[id].nominal);
+            let cost = base + self.config.cost.edge(length, set);
+
+            if entry == 0 && cost >= self.costs[id] {
+                return Err(Rejection::NotCheaper);
+            }
+
+            if cost > self.costs[id] {
+                return Err(Rejection::CostIncreased);
+            }
+
+            costs.push(cost);
+        }
+
+        Ok(costs)
+    }
+
     /// Whether each node of `subtree` is proven inside the goal with its new set, or
     /// [`Rejection::GoalLost`] if a node that reached the goal no longer does.
     fn goal_flags(
@@ -606,15 +697,14 @@ where
             .collect()
     }
 
-    /// Moves the root of `subtree` under `parent` and stores the proven sets, goal flags and
-    /// costs of the whole subtree.
+    /// Moves the root of `subtree` under `parent` and stores the proven sets, costs and goal
+    /// flags of the whole subtree.
     fn commit(
         &mut self,
         parent: usize,
         control: R::Control,
         subtree: &[(usize, usize)],
-        sets: Vec<SparsePolyZonotope>,
-        in_goal: &[bool],
+        proven: Proven,
     ) {
         let node = subtree[0].0;
         let old = self.nodes[node].parent.expect("the root is never rewired");
@@ -623,9 +713,14 @@ where
         self.nodes[node].parent = Some(parent);
         self.nodes[node].control = Some(control);
 
-        for ((&(id, _), set), &inside) in subtree.iter().zip(sets).zip(in_goal) {
-            let parent = self.nodes[id].parent.expect("non-root nodes have one");
-            self.costs[id] = self.cost_via(parent, &self.nodes[id].nominal);
+        let entries = proven
+            .sets
+            .into_iter()
+            .zip(proven.costs)
+            .zip(proven.in_goal);
+
+        for (&(id, _), ((set, cost), inside)) in subtree.iter().zip(entries) {
+            self.costs[id] = cost;
             self.nodes[id].set = set;
             self.in_goal[id] = inside;
         }
@@ -640,11 +735,14 @@ where
             &self.nodes[from].set,
             &control,
         )?;
+        let length = Euclidean::<N>.distance(&self.nodes[from].nominal, nominal);
+        let cost = self.costs[from] + self.config.cost.edge(length, &set);
 
         Some(Edge {
             parent: from,
             control,
             set,
+            cost,
         })
     }
 
@@ -664,7 +762,7 @@ where
 
     /// Adds a node at `nominal` with the proven `edge` and returns its id.
     fn insert(&mut self, edge: Edge<R::Control>, nominal: [f64; N]) -> usize {
-        let cost = self.cost_via(edge.parent, &nominal);
+        let cost = edge.cost;
         let id = self.push(
             Node {
                 nominal,
@@ -691,8 +789,9 @@ where
         id
     }
 
-    /// The cost of reaching `nominal` through node `via`.
-    fn cost_via(&self, via: usize, nominal: &[f64; N]) -> f64 {
+    /// A lower bound on the cost of reaching `nominal` through node `via`: its cost plus
+    /// the nominal length. Exact for [`Cost::Length`].
+    fn length_bound(&self, via: usize, nominal: &[f64; N]) -> f64 {
         self.costs[via] + Euclidean::<N>.distance(&self.nodes[via].nominal, nominal)
     }
 
@@ -729,6 +828,10 @@ fn validate(config: &Config) -> Result<(), Error> {
 
     if config.max_radius.is_nan() || config.max_radius <= 0.0 {
         return Err(Error::InvalidMaxRadius);
+    }
+
+    if !config.cost.is_valid() {
+        return Err(Error::InvalidCostWeight);
     }
 
     Ok(())
