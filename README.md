@@ -10,7 +10,9 @@ Planning over reachable sets under uncertainty: Robust-RRT and reachability-guid
 - [x] Edge checks for `sampling-planning` planners (`ReachChecker`)
 - [x] Pluggable steering (`Steer`, `WithSteering`), goals (`Goal`, `PolytopeGoal`) and
   certified collision witnesses (`Reach::certify_collision`)
-- [ ] Robust RRT* (rewiring with re-propagation)
+- [x] Robust RRT*: choose-parent and rewiring over proven-safe edges only; a rewire
+  re-propagates and re-proves the whole moved subtree and commits only if all of it stays
+  proven safe and no goal node loses the goal, within a per-iteration budget (`RobustRrtStar`)
 - [ ] Safety-constrained trajectory planning
 - [ ] polyzonotope-reach for reachable sets (a test-only affine model stands in)
 
@@ -21,9 +23,9 @@ needs x86-64 Haswell or newer (see `.cargo/config.toml`) or AArch64. See
 
 ## Status
 
-Pre-release, version 0.0.0. Robust-RRT, the reachability-guided search and the
-`sampling-planning` adapter work. Run `cargo run --example robust_rrt_2d` and
-`cargo bench --bench search`. The API will change.
+Pre-release, version 0.0.0. Robust-RRT, Robust RRT*, the reachability-guided search and the
+`sampling-planning` adapter work. Run `cargo run --example robust_rrt_2d`,
+`cargo bench --bench search` and `cargo bench --bench robust_rrt_star`. The API will change.
 
 ## License
 

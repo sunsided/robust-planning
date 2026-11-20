@@ -223,13 +223,66 @@ A* optimality condition.
 The search has no external heuristic-search dependency. It uses `std`'s `BinaryHeap` and
 `HashMap`.
 
-### Robust RRT*: not implemented
+## Robust RRT*: `RobustRrtStar`
 
-Rewiring changes a node's parent and therefore its reachable set. The whole subtree must
-then be re-propagated and re-proven, and a rewire that makes any descendant unproven must
-be rejected or the descendant pruned. That fits poorly in the local tree. It is deferred
-until `sampling-planning` trees carry per-node payloads (see Cross-crate needs).
-`ReachSearch` already returns the optimal nominal path over the lattice it keeps.
+`robust_rrt_star::RobustRrtStar` is the RRT* variant of `RobustRrt`. It takes the same
+`robust_rrt::Problem` and keeps its own local tree: per node the `Node` (nominal state,
+reachable set, parent, control), plus its cost, its children and whether its set is proven
+inside the goal. `sampling-planning` is unchanged; the radius formula is repeated locally,
+because that crate's `radius` module is private.
+
+One iteration:
+
+1. Extend the nearest node toward a goal-biased sample and prove the edge, exactly as
+   `RobustRrt` does. If it is not proven safe, the iteration ends.
+2. **Choose parent.** The neighbors within `min(gamma (ln n / n)^(1/N), max_radius)` of the
+   new nominal state that would make it cheaper are tried in order of cost. The first one
+   whose edge is proven `Safe` becomes the parent; otherwise the nearest node stays.
+3. Insert the node.
+4. **Rewire.** For every neighbor that would be cheaper through the new node, try a
+   transaction (below), within `Config::rewire_budget` edge checks per iteration.
+
+### The rewire transaction
+
+A new parent gives the moved node a new reachable set, and every descendant's set depends
+on it. The transaction therefore:
+
+1. collects the node's subtree in breadth-first order, so every parent comes before its
+   children. If the subtree has more nodes than the remaining budget, the rewire is
+   *skipped* before any check, so one iteration never exceeds the budget. Budget `0`
+   disables rewiring;
+2. rejects the rewire if the new parent lies in the subtree (a cycle);
+3. steers from the new parent to the node and rejects unless the steering ends *exactly* at
+   the node's nominal state. The descendants keep their stored controls, which start
+   there. A model that stops short of the target therefore rewires only within its reach,
+   so `max_radius` should not exceed the model's steering range;
+4. propagates the new parent's set along that edge, then every descendant from its
+   parent's *new* set under its stored control, proving each edge with `check_edge`. The
+   first edge that is not `Safe` rejects the rewire;
+5. rejects the rewire if a node of the subtree that was proven inside the goal is not
+   proven inside with its new set. Nodes may gain the goal, never lose it;
+6. only then commits: parent, control, sets, goal flags and costs of the whole subtree.
+
+The new sets live in a scratch vector until the commit, so a rejection leaves the tree
+exactly as it was. Costs are recomputed parent-first as `cost(parent) + |edge|`, the same
+left fold as the path's cost, so `cost(goal node)` equals `path().cost` bit for bit.
+
+Rejecting is the only option considered. Pruning the descendants that become unproven
+would also be sound, but it can drop goal nodes and so break the non-increasing cost, and
+it throws away tree that took checks to build.
+
+### Cost and optimality
+
+The cost is the nominal path length. The best cost never increases: new nodes only add goal
+candidates, a commit only lowers the costs of one subtree, and no commit drops a goal node.
+RRT*'s asymptotic optimality holds only relative to the rewires that commit. Rejected
+rewires (a branch with a wider set) and budget skips void the classic argument, so the tree
+converges toward the cheapest path among those that stay proven safe under its own set
+propagation, not to the nominal optimum. A cost that included the set size could prefer
+narrow sets; it is not implemented.
+
+`RobustRrtStar::run` does not stop at the first goal node, since later iterations keep
+lowering the cost. `stats()` counts committed, rejected and skipped rewires.
 
 ## Refinement by splitting before rejecting
 
@@ -267,7 +320,9 @@ Nothing here changes another repo. These are requests to the owning sessions.
   need a "set inside region" test, ideally a goal trait. This crate's `Goal` trait is the
   local stand-in.
 - **Cost over sets** (later): RRT* rewiring changes a node's parent and therefore its
-  reachable set. Rewiring must re-propagate and re-check the subtree.
+  reachable set, so rewiring must re-propagate and re-check the subtree. `RobustRrtStar`
+  does this in its local tree; payload-carrying trees in `sampling-planning` would let it
+  reuse `RrtStar` instead, and a public radius helper would remove the local copy.
 
 **polyzonotope**
 
@@ -299,6 +354,17 @@ Nothing here changes another repo. These are requests to the owning sessions.
   and A* expands no more nodes. Every edge of the search tree is audited. Monte-Carlo runs
   along the found path. A passage narrower than the set exhausts the search. No kept node
   is dominated by an older one in its cell. A budget stop can be resumed.
+- **Robust RRT*:** hand-built trees with a model whose set grows by 0.1 per edge, so a
+  cheaper branch with more edges gives a wider set. A rewire is rejected when a descendant
+  becomes unproven, when a goal node would lose the goal, when the edge to the new parent is
+  unproven, on a cycle and over budget, and each rejection leaves parents, controls, sets,
+  costs, children and goal flags unchanged. A committed rewire re-propagates the subtree
+  and its costs match the nominal path. On the slalom: every final edge is re-propagated
+  from its parent's *current* set, the stored set matches, and every cover set is checked
+  against polyzonotope directly; Monte-Carlo runs along the returned path and other
+  branches; the best cost never increases over 1500 iterations and ends at or below
+  `RobustRrt`'s for seeds 0, 1 and 2 (an empirical check, not a theorem); same seed, same
+  tree.
 - **Unit tests:**
   - the verdict mapping from `Intersection`;
   - the `and` lattice and the `Validity` mapping;
@@ -335,9 +401,9 @@ through polyzonotope's harness; fuzzing of the checker inputs.
    Nonlinear dynamics.
 3. Refinement beyond set splitting: time splitting, initial-set bisection, and budget
    escalation.
-4. **Done in this draft:** the reachability-guided best-first search (`ReachSearch`).
-   **Open:** Robust RRT* with re-propagation on rewiring, reusing `sampling-planning`
-   trees once they carry per-node payloads.
+4. **Done in this draft:** the reachability-guided best-first search (`ReachSearch`) and
+   Robust RRT* with transactional re-propagation on rewiring (`RobustRrtStar`), in a local
+   tree. **Open:** reusing `sampling-planning` trees once they carry per-node payloads.
 5. Safety-constrained trajectory planning: optimize nominal controls under proven set
    constraints. Fail-safe maneuvers.
 6. Optional `temporal-control` adapter for timed plans (spaceflight track).
