@@ -32,11 +32,12 @@
 //!
 //! The cost is the nominal path length, as in [`RobustRrt`](crate::RobustRrt). The cost of
 //! [`RobustRrtStar::path`] never increases: new nodes only add goal candidates, a commit
-//! only lowers the costs of a subtree, and no commit drops a node from the goal. RRT*'s
-//! asymptotic optimality holds only with respect to rewires that commit. A rewire can be
-//! rejected because the new branch makes the set wider, or skipped because of
-//! [`Config::rewire_budget`], so the tree converges to the cheapest path among those that
-//! stay proven safe under its set propagation, not to the nominal optimum.
+//! only lowers the costs of a subtree, and no commit drops a node from the goal.
+//!
+//! No convergence to an optimum is claimed. RRT*'s asymptotic optimality argument assumes
+//! every cheaper rewire is taken; here a rewire can be rejected because the new branch makes
+//! a set wider, skipped because of [`Config::rewire_budget`], or impossible because the
+//! steering does not reach the node exactly.
 //!
 //! # Examples
 //!

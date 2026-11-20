@@ -275,10 +275,9 @@ it throws away tree that took checks to build.
 
 The cost is the nominal path length. The best cost never increases: new nodes only add goal
 candidates, a commit only lowers the costs of one subtree, and no commit drops a goal node.
-RRT*'s asymptotic optimality holds only relative to the rewires that commit. Rejected
-rewires (a branch with a wider set) and budget skips void the classic argument, so the tree
-converges toward the cheapest path among those that stay proven safe under its own set
-propagation, not to the nominal optimum. A cost that included the set size could prefer
+No convergence to an optimum is claimed. RRT*'s asymptotic optimality argument assumes
+every cheaper rewire is taken; rejected rewires (a branch with a wider set), budget skips
+and the exact-arrival rule all break it. A cost that included the set size could prefer
 narrow sets; it is not implemented.
 
 `RobustRrtStar::run` does not stop at the first goal node, since later iterations keep
