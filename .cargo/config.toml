@@ -1,0 +1,5 @@
+# polyzonotope's `sound` feature (inari) needs AVX2 and FMA on x86-64, so build for Haswell,
+# as polyzonotope does. On a pre-Haswell x86-64 machine, override with
+# RUSTFLAGS="-C target-cpu=native" and do not enable `sound`.
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-C", "target-cpu=haswell"]
