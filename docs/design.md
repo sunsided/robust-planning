@@ -220,15 +220,29 @@ A* optimality condition.
   that dominates older nodes in its cell supersedes them, and they are skipped when popped.
   `Config::dedup` picks the set-in-set test. `Dedup::Hull` (the default) compares
   interval hulls, a heuristic: pruning never affects safety, but it can cost completeness
-  in passages where a set is much thinner than its hull. `Dedup::Proven` proves the
-  containment instead (next section). On the slalom both find the same optimum (22.49),
-  but the proven test expands 3388 nodes against 350, because it never merges sets that
-  only touch.
+  in passages where a set is much thinner than its hull. `Dedup::Proven { tolerance }`
+  proves `A ⊆ B ⊕ [-tolerance, tolerance]ⁿ` instead (next section), and falls back to the
+  hull test where the proof does not handle `B`'s shape. A* expansions on the slalom
+  (release, `sound`), all with the same optimum 22.49:
+
+  | Test | Expansions |
+  | --- | --- |
+  | `Hull` | 350 |
+  | `Proven { tolerance: 0 }` | 3388 |
+  | `Proven { tolerance: 1e-12 }` (also `1e-9`, `1e-6`) | 234 |
+
+  Without tolerance, sets that differ only by rounding noise touch and are never merged.
+  Any tolerance from `1e-12` up merges them, and then the proof merges *more* than the
+  hull test, whose exact bounds reject a hull that sticks out by one ULP. The dominance is
+  then only true up to the tolerance, which, like all deduplication, affects completeness
+  and never safety.
 - **Workspace bounds.** `search::Problem::bounds` is an optional box for nominal states.
   Successors outside it are dropped before their edge is checked, so an open world needs
-  no framing walls to stay finite. It bounds nominal states only; keeping whole sets
-  inside is a job for obstacles. `new` rejects NaN or inverted bounds and bounds that
-  exclude the start.
+  no framing walls to stay finite. With `Config::bounds_contain_sets` (opt-in) whole sets
+  must stay inside too: the start set and every cover and end set of an edge must be
+  proven inside the box (`Containment::Inside` within the obstacles' split budget), and an
+  edge that is not is dropped like an unsafe one. `new` rejects NaN or inverted bounds,
+  bounds that exclude the start, and, with set bounds, a start set not proven inside.
 - **Subtree pruning (opt-in).** With `Config::prune_superseded_subtrees`, a node that a
   new node supersedes also takes every descendant it has generated off the open list.
   This is sound: pruning only removes open nodes, every kept edge stays proven, and the
@@ -368,32 +382,54 @@ The width is a hull measure, not a proof of anything; it only orders paths. Usin
 mean width or the volume instead would be equally additive. The largest side was chosen
 because it is dimension-independent in scale and cheap.
 
-## Proven set-in-set containment: `proven_within`
+## Proven set-in-set containment: `decide_within`
 
 polyzonotope 0.2 proves a set inside a polytope (`containment`) but not inside another
 set. Proving `A ⊆ B` through an *outer* polytope of `B` would be unsound: `A` inside a
 superset of `B` says nothing about `B`. What is needed is a polytope *inside* `B`.
 
-For a planar zonotope `B = c + Σ βᵢ gᵢ` that polytope is known in closed form. If `B` has
-rank 2, its edges are parallel to its generators, so `B` is exactly the intersection of the
-facet pairs `±nᵢᵀ x <= ±nᵢᵀ c + Σⱼ |nᵢᵀ gⱼ|` with `nᵢ = (-gᵢ,y, gᵢ,x)`. That normal is
-computed exactly (a swap and a negation). Only the offsets round, and `proven_within`
-rounds them down: it subtracts twice the bound `γ_{m+3} Σ |terms|` on the rounding error
-of a sum of dot products (Higham §3.1), plus an absolute term for underflow. The support
-pairs along each generator are added as well; they contain `B` anyway and make a rank-1
-zonotope (a segment) bounded. The result is a polytope inside `B`, so
-`A.containment(P) == Inside` proves `A ⊆ B`. With `sound` that last step is rigorous too.
+A zonotope `B = c + Σ βⱼ gⱼ` of rank `n` in `n` dimensions is exactly the intersection of
+the facet pairs `±ĉᵀ (x - c) <= Σⱼ |ĉᵀ gⱼ|`, where `ĉ` runs over the generalised cross
+products of every `n - 1` generators (entry `i` is `(-1)^i` times the minor without row
+`i`). Every such pair contains `B`, and the true facets are among them.
 
-Scope and limits:
+- **Plane.** `ĉ = (-g_y, g_x)` is exact (a swap and a negation). The support pairs along
+  each generator are added too, which bounds a rank-1 zonotope (a segment).
+- **3 and 4 dimensions.** The minors are expanded by Leibniz with the error bound
+  `γ_{k + k! - 1} Σ |products|` (Higham §3.1), so each computed normal `ĉ` is within a
+  componentwise `ε` of the exact one. Rank `n` must be proven first (some `n` generators
+  with `|det| >` its error bound): below full rank the pairs only cut a slab around the
+  flat zonotope, and the shape answers "not decided".
+- **Offsets.** For a point `x` of `A` with `|xᵢ - cᵢ| <= rᵢ` (from `A`'s interval hull),
+  the computed facet implies the exact one if `ĉᵀ x <= ĉᵀ c + Σⱼ |ĉᵀ gⱼ| - Σᵢ εᵢ (Σⱼ
+  |gⱼᵢ| + rᵢ)`. That right-hand side is evaluated in `f64` and lowered by
+  `2 γ_{n+m+2}` times the magnitudes of its terms, the slack rounded up, and an absolute
+  term for underflow. So the polytope `P` depends on `A`, and `A ⊆ P` implies `A ⊆ B`.
+- **Proof.** First a cheap rigorous test: `A`'s interval hull inside `P`, each facet's
+  maximum over the box rounded up. Otherwise `A.containment(P) == Inside` from
+  polyzonotope, which is rigorous with `sound`.
+- **Inflation.** With a tolerance `δ > 0`, the `n` generators `δ eᵢ` are appended to `B`,
+  which proves `A ⊆ B ⊕ [-δ, δ]ⁿ` exactly as above.
 
-- `B` must be a zonotope in sparse form: every dependent monomial one factor to the power
-  one, no factor in two monomials. Other sets, and every dimension but 2, answer `false`
-  (not decided). The nD case needs exact facet normals from `N - 1` generators, which do
-  not round exactly; an LP-based sufficient condition (Sadraddini and Tedrake) needs a
-  solver. Both are open.
-- Representations with equal entries (ids aside) describe the same set and are accepted
-  directly. Sets that merely touch are not proven, because the rounded-down offsets make
-  the boundary strict.
+`decide_within(inner, outer, tolerance, max_splits)` answers `None` when the shape is not
+handled, and then claims nothing:
+
+- `B` is not a zonotope in sparse form (a dependent monomial that is not one factor to
+  the power one, or a factor in two monomials);
+- the dimension is 1 or above `MAX_DIMENSION = 4` (Leibniz cost grows with `n!`);
+- there are more than `MAX_GENERATORS = 12` non-zero generators, inflation included
+  (the facet count grows like `m^(n-1)`);
+- an entry or an offset is not finite, or the rank is not proven full.
+
+Otherwise it answers `Some(true)` (proven) or `Some(false)` (not proven). `proven_within`
+is the boolean shorthand without tolerance. Representations with equal entries (ids
+aside) describe the same set and are accepted directly. Sets that merely touch are not
+proven, because the rounded-down offsets make the boundary strict.
+
+Cross-checks: in the plane the exact and the general (cofactor) facets give the same
+answer on 300 random zonotope and box pairs, more than 20 of them proven. In 3D, every
+sampled point (corners and random points) of each proven box lies in the zonotope, over
+200 random pairs with more than 10 proven. The flat 3D zonotope and 5D are not decided.
 - Containment of the *true* sets does not make the propagation monotone (Girard reduction
   is not), so even a proven dominance can cost completeness; it never costs safety.
 
@@ -439,9 +475,9 @@ Nothing here changes another repo. These are requests to the owning sessions.
 
 **polyzonotope**
 
-- **Set-in-set containment**, at least zonotope-in-zonotope in every dimension, so that
-  `Dedup::Proven` works beyond the plane (today `proven_within` decides planar zonotopes
-  only).
+- **Set-in-set containment**, at least zonotope-in-zonotope in every dimension and for
+  more generators, so that `Dedup::Proven` needs no hull fallback (today `decide_within`
+  handles zonotopes in 2 to 4 dimensions with at most 12 generators).
 - **A certified witness** for `Intersection::Intersects`, so that an exact or
   under-approximated set can prove `Unsafe` through `Reach::certify_collision`: the factor
   values of a point of the set itself, plus an outward-rounded enclosure of its image that
@@ -494,9 +530,15 @@ Nothing here changes another repo. These are requests to the owning sessions.
   guard); on the slalom it gives the same path, every edge audited, Monte-Carlo along it.
 - **Proven containment:** a box whose hull fits a diamond's hull but whose corners stick
   out is not proven inside, smaller boxes are; touching and differently represented
-  copies are not, equal representations are; segments, shared factors, 3D and
-  non-finite inputs are left undecided; offsets are rounded down. `Dedup::Proven` keeps a
-  node the hull test wrongly drops and finds the lattice optimum in an open world.
+  copies are not, equal representations are; segments, shared factors, 5D, flat 3D,
+  too many generators and non-finite inputs are left undecided; planar and cofactor
+  facets agree in 2D; sampled points of proven 3D boxes lie in the zonotope; a tolerance
+  merges touching copies only up to itself; Leibniz determinants and their bounds.
+  `Dedup::Proven` keeps a node the hull test wrongly drops and finds the lattice optimum
+  in an open world; an ignored release test reports the slalom expansions.
+- **Set bounds:** with `bounds_contain_sets`, every cover and end set is proven inside the
+  box (checked with polyzonotope directly), fewer nodes survive than with nominal bounds,
+  and a start set that sticks out is rejected only in that mode.
 - **Unit tests:**
   - the verdict mapping from `Intersection`;
   - the `and` lattice and the `Validity` mapping;
@@ -536,9 +578,9 @@ through polyzonotope's harness; fuzzing of the checker inputs.
 4. **Done in this draft:** the reachability-guided best-first search (`ReachSearch`) and
    Robust RRT* with transactional re-propagation on rewiring (`RobustRrtStar`), in a local
    tree, with an unbounded mode, a robustness-weighted cost, workspace bounds, a derived
-   goal radius, opt-in subtree pruning and opt-in proven planar deduplication.
-   **Open:** reusing `sampling-planning` trees once they carry per-node payloads; proven
-   containment beyond the plane.
+   goal radius, opt-in subtree pruning, opt-in proven deduplication (2 to 4 dimensions)
+   and opt-in set bounds. **Open:** reusing `sampling-planning` trees once they carry
+   per-node payloads; proven containment above four dimensions or twelve generators.
 5. Safety-constrained trajectory planning: optimize nominal controls under proven set
    constraints. Fail-safe maneuvers.
 6. Optional `temporal-control` adapter for timed plans (spaceflight track).

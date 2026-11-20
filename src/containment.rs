@@ -1,62 +1,112 @@
-//! Proven set-in-set containment for planar zonotopes, built on polyzonotope's
+//! Proven set-in-set containment: a set inside a zonotope, built on polyzonotope's
 //! set-in-polytope test.
 //!
-//! polyzonotope 0.2 can prove a set inside a polytope, but not inside another set. When the
-//! outer set is a planar zonotope, its exact H-representation is known in closed form: one
-//! pair of facets per generator, with normal perpendicular to it. The normals are computed
-//! exactly (a swap and a negation); only the offsets round, and they are rounded *down* with
-//! a rigorous error bound, so the polytope lies inside the outer set. A proof that the inner
-//! set lies in that polytope is then a proof that it lies in the outer set.
+//! polyzonotope 0.2 can prove a set inside a polytope, but not inside another set. Testing
+//! against an *outer* polytope of the other set would be unsound, so this module builds an
+//! *inner* one. A zonotope of rank `n` in `n` dimensions is exactly the intersection of the
+//! facet pairs whose normals are the generalised cross products of every `n - 1` of its
+//! generators. The normals come with rigorous error bounds (zero in the
+//! plane), and every offset is lowered by the error of the normal and its own rounding, so
+//! that the inner set satisfying the computed facets implies it satisfies the exact ones.
+//!
+//! ```mermaid
+//! graph LR
+//!     Shape{"zonotope, 2 to 4 dims, at most 12 generators?"} -->|no| Undecided["None"]
+//!     Shape -->|yes| Facets["facets with error bounds"]
+//!     Facets -->|rank not proven| Undecided
+//!     Facets --> Box{"inner hull inside?"}
+//!     Box -->|yes| Inside["Some(true)"]
+//!     Box -->|no| Split["polyzonotope containment"]
+//! ```
+
+mod facets;
+#[cfg(test)]
+mod tests;
 
 use nalgebra::DVector;
-use polyzonotope::{Containment, Halfspace, Polytope, SparsePolyZonotope};
+use polyzonotope::{Containment, Halfspace, IntervalBox, Polytope, SparsePolyZonotope};
 
-/// Whether `inner` is proven to lie inside `outer`.
-///
-/// Answers `false` unless both sets are planar and `outer` is a zonotope in sparse form:
-/// every dependent monomial is a single factor to the power one, and no factor appears in
-/// two monomials, with a finite center, finite generators and finite facet offsets. Other shapes are not decided, which only costs a deduplication. The proof
-/// is rigorous with the `sound` feature; without it, the final set-in-polytope test is up
-/// to floating-point rounding, as every check in this crate.
-///
-/// `max_splits` bounds the splits of the set-in-polytope test.
+use facets::{Normal, count_to_f64, gamma};
+
+/// The largest dimension [`decide_within`] handles. Determinants are expanded by Leibniz,
+/// whose cost grows with the factorial of the dimension.
+pub const MAX_DIMENSION: usize = 4;
+
+/// The most generators (including the inflation) [`decide_within`] handles. The facet
+/// count grows like `generators^(dimension - 1)`.
+pub const MAX_GENERATORS: usize = 12;
+
+/// Whether `inner` is proven to lie inside `outer`: [`decide_within`] without inflation,
+/// with an undecided shape read as not proven.
 #[must_use]
 pub fn proven_within(
     inner: &SparsePolyZonotope,
     outer: &SparsePolyZonotope,
     max_splits: usize,
 ) -> bool {
-    if same_representation(inner, outer) {
-        return true;
+    decide_within(inner, outer, 0.0, max_splits) == Some(true)
+}
+
+/// Tries to prove `inner` inside `outer ⊕ [-tolerance, tolerance]ⁿ`.
+///
+/// - `None`: the shape is not handled, and nothing is claimed. `outer` must be a zonotope
+///   in sparse form (every dependent monomial one factor to the power one, no factor in
+///   two monomials) in 2 to [`MAX_DIMENSION`] dimensions, with at most
+///   [`MAX_GENERATORS`] non-zero generators counting the `n` inflation generators, finite
+///   entries, and in 3 or more dimensions a rank proven to be full; `inner` must have the
+///   same dimension, and `tolerance` must be finite and non-negative.
+/// - `Some(true)`: proven inside. Rigorous with the `sound` feature; without it the final
+///   set-in-polytope step is up to floating-point rounding, as every check in this crate.
+///   The facet offsets are rounded down rigorously in both modes.
+/// - `Some(false)`: not proven, which need not mean it sticks out.
+///
+/// Equal representations (ids aside) are proven inside each other directly: rounding the
+/// offsets down makes the boundary strict, so touching sets are otherwise not proven.
+/// A positive `tolerance` merges them as well, at the price of a dominance that is only
+/// true up to `tolerance`. The cheap test that the interval hull of `inner` lies inside the
+/// facets runs before polyzonotope's splitting test, whose budget is `max_splits`.
+#[must_use]
+pub fn decide_within(
+    inner: &SparsePolyZonotope,
+    outer: &SparsePolyZonotope,
+    tolerance: f64,
+    max_splits: usize,
+) -> Option<bool> {
+    if same_representation(inner, outer) && tolerance >= 0.0 {
+        return Some(true);
     }
 
-    if inner.dim() != 2 || outer.dim() != 2 || !is_zonotope(outer) {
-        return false;
+    let n = outer.dim();
+    let shape_ok = inner.dim() == n
+        && (2..=MAX_DIMENSION).contains(&n)
+        && tolerance.is_finite()
+        && tolerance >= 0.0
+        && is_zonotope(outer);
+
+    if !shape_ok {
+        return None;
     }
 
-    let generators = generators(outer);
+    let generators = inflated_generators(outer, tolerance)?;
+    let normals = if n == 2 {
+        facets::planar(&generators)
+    } else {
+        facets::cofactors(&generators, n)?
+    };
+    let hull = inner.interval_hull();
+    let polytope = inner_polytope(outer.center(), &generators, &normals, &hull)?;
 
-    if generators.is_empty() {
-        return false;
+    if hull_inside(&hull, &polytope) {
+        return Some(true);
     }
 
-    let finite_inputs = outer.center().iter().all(|x| x.is_finite())
-        && generators.iter().flatten().all(|x| x.is_finite());
-    let polytope = inner_polytope(outer.center(), &generators);
-    // An infinite offset cuts nothing and a NaN one is never refuted, so either would void
-    // the proof.
-    let finite_offsets = polytope.facets.iter().all(|h| h.offset.is_finite());
-
-    finite_inputs
-        && finite_offsets
-        && inner.containment(&polytope, max_splits) == Containment::Inside
+    Some(inner.containment(&polytope, max_splits) == Containment::Inside)
 }
 
 /// Whether both sets have the same center, generators and exponents, entry for entry.
 ///
 /// Factor ids may differ: two representations with equal entries describe the same set,
-/// since each factor ranges over `[-1, 1]` whatever its id. The strict facet test cannot
-/// show such touching sets inside each other.
+/// since each factor ranges over `[-1, 1]` whatever its id.
 fn same_representation(a: &SparsePolyZonotope, b: &SparsePolyZonotope) -> bool {
     a.center() == b.center()
         && a.dependent_generators() == b.dependent_generators()
@@ -79,188 +129,118 @@ fn is_zonotope(set: &SparsePolyZonotope) -> bool {
     linear_columns && distinct_factors
 }
 
-/// The non-zero generators of a set that [`is_zonotope`], dependent and independent.
-fn generators(set: &SparsePolyZonotope) -> Vec<[f64; 2]> {
-    set.dependent_generators()
+/// The non-zero generators of a set that [`is_zonotope`], dependent and independent, plus
+/// `tolerance` along every axis if it is positive; `None` if any entry of the center or a
+/// generator is not finite or there are none or too many.
+fn inflated_generators(set: &SparsePolyZonotope, tolerance: f64) -> Option<Vec<Vec<f64>>> {
+    let n = set.dim();
+    let mut generators: Vec<Vec<f64>> = set
+        .dependent_generators()
         .column_iter()
         .chain(set.independent_generators().column_iter())
-        .map(|g| [g[0], g[1]])
-        .filter(|g| *g != [0.0, 0.0])
-        .collect()
+        .map(|g| g.iter().copied().collect::<Vec<f64>>())
+        .filter(|g| g.iter().any(|&x| x != 0.0))
+        .collect();
+
+    if tolerance > 0.0 {
+        generators.extend((0..n).map(|i| {
+            let mut axis = vec![0.0; n];
+            axis[i] = tolerance;
+            axis
+        }));
+    }
+
+    let finite = set.center().iter().all(|x| x.is_finite())
+        && generators.iter().flatten().all(|x| x.is_finite());
+
+    (finite && !generators.is_empty() && generators.len() <= MAX_GENERATORS).then_some(generators)
 }
 
-/// A polytope inside the zonotope `center + Σ βᵢ gᵢ`, `βᵢ ∈ [-1, 1]`, equal to it up to the
-/// downward rounding of its offsets.
-///
-/// For each generator, the facet pair perpendicular to it (the exact H-representation of a
-/// planar zonotope of rank 2), plus the support pair along it, which makes a rank-1
-/// zonotope (a segment) bounded too. Every halfspace contains the zonotope before rounding,
-/// and the exact facets alone cut it out, so the intersection is the zonotope.
-fn inner_polytope(center: &DVector<f64>, generators: &[[f64; 2]]) -> Polytope {
-    let c = [center[0], center[1]];
-    let facets = generators
+/// The polytope of both facets of every normal, with offsets lowered so that it lies
+/// inside the zonotope for every set whose interval hull is `hull`; `None` if an offset is
+/// not finite (an infinite one would cut nothing and a NaN one is never refuted).
+fn inner_polytope(
+    center: &DVector<f64>,
+    generators: &[Vec<f64>],
+    normals: &[Normal],
+    hull: &IntervalBox,
+) -> Option<Polytope> {
+    let reach = hull_reach(center, hull);
+    let facets: Vec<Halfspace> = normals
         .iter()
-        .flat_map(|g| [[-g[1], g[0]], *g])
-        .flat_map(|n| [n, [-n[0], -n[1]]])
+        .flat_map(|n| {
+            let negated = Normal {
+                normal: n.normal.iter().map(|x| -x).collect(),
+                error: n.error.clone(),
+            };
+
+            [n.clone(), negated]
+        })
         .map(|n| Halfspace {
-            normal: DVector::from_column_slice(&n),
-            offset: support_lower_bound(&n, &c, generators),
+            offset: offset_lower_bound(&n, center, generators, &reach),
+            normal: DVector::from_vec(n.normal),
         })
         .collect();
 
-    Polytope { facets }
+    facets
+        .iter()
+        .all(|h| h.offset.is_finite())
+        .then_some(Polytope { facets })
 }
 
-/// A lower bound on the support function `nᵀ c + Σ |nᵀ gᵢ|` of the zonotope in direction
-/// `n`, from the plain-`f64` value minus a rigorous bound on its rounding error.
+/// By axis, an upper bound on `|x - center|` over the box `hull`.
+fn hull_reach(center: &DVector<f64>, hull: &IntervalBox) -> Vec<f64> {
+    hull.0
+        .iter()
+        .zip(center.iter())
+        .map(|(range, c)| (range.hi - c).abs().max((range.lo - c).abs()) * (1.0 + f64::EPSILON))
+        .collect()
+}
+
+/// A lower bound on the offset that makes the computed facet imply the exact one.
 ///
-/// Each of the `m + 1` dot products and the sum over them round to nearest; the total error
-/// is at most `γ_{m+3} Σ |terms|` (Higham, *Accuracy and Stability of Numerical
-/// Algorithms*, §3.1), with `γ_k = k u / (1 - k u)` and `u = 2⁻⁵³`. The bound is doubled
-/// against the rounding of its own evaluation, and an absolute term covers underflow.
-fn support_lower_bound(n: &[f64; 2], c: &[f64; 2], generators: &[[f64; 2]]) -> f64 {
-    let dot = |v: &[f64; 2]| n[0] * v[0] + n[1] * v[1];
-    let magnitude = |v: &[f64; 2]| (n[0] * v[0]).abs() + (n[1] * v[1]).abs();
-    let value = dot(c) + generators.iter().map(|g| dot(g).abs()).sum::<f64>();
-    let scale = magnitude(c) + generators.iter().map(magnitude).sum::<f64>();
-    let terms = count_to_f64(generators.len() + 3);
-    let u = f64::EPSILON / 2.0;
-    let gamma = terms * u / (1.0 - terms * u);
-    let error = 2.0 * gamma * scale + terms * f64::MIN_POSITIVE;
+/// With exact normal `c = ĉ - e`, `|eᵢ| <= εᵢ`, a point `x` of the inner set with
+/// `|xᵢ - centerᵢ| <= rᵢ` satisfies the exact facet `cᵀ (x - center) <= Σⱼ |cᵀ gⱼ|` if
+/// `ĉᵀ x <= ĉᵀ center + Σⱼ |ĉᵀ gⱼ| - Σᵢ εᵢ (Σⱼ |gⱼᵢ| + rᵢ)`. That right-hand side is
+/// evaluated in `f64` and lowered by `2 γ_{n + m + 2}` times the sum of the magnitudes of
+/// its terms (Higham §3.1), with the slack term rounded up, plus an absolute term for
+/// underflow.
+fn offset_lower_bound(
+    n: &Normal,
+    center: &DVector<f64>,
+    generators: &[Vec<f64>],
+    reach: &[f64],
+) -> f64 {
+    let c = &n.normal;
+    let dot = |v: &[f64]| c.iter().zip(v).map(|(a, b)| a * b).sum::<f64>();
+    let magnitude = |v: &[f64]| c.iter().zip(v).map(|(a, b)| (a * b).abs()).sum::<f64>();
+    let center = center.as_slice();
+    let value = dot(center) + generators.iter().map(|g| dot(g).abs()).sum::<f64>();
+    let scale = magnitude(center) + generators.iter().map(|g| magnitude(g)).sum::<f64>();
+    let slack: f64 = (0..c.len())
+        .map(|i| n.error[i] * (generators.iter().map(|g| g[i].abs()).sum::<f64>() + reach[i]))
+        .sum();
+    let terms = c.len() + generators.len() + 2;
+    let g = gamma(terms);
 
-    value - error
+    value - 2.0 * g * scale - slack * (1.0 + 4.0 * g) - count_to_f64(terms) * f64::MIN_POSITIVE
 }
 
-/// Converts a count to `f64`, saturating at `u32::MAX`.
-fn count_to_f64(count: usize) -> f64 {
-    f64::from(u32::try_from(count).unwrap_or(u32::MAX))
-}
+/// Whether every point of the box `hull` lies in `polytope`, with the maximum of each facet
+/// over the box rounded up.
+fn hull_inside(hull: &IntervalBox, polytope: &Polytope) -> bool {
+    polytope.facets.iter().all(|h| {
+        let (value, scale) = h
+            .normal
+            .iter()
+            .zip(&hull.0)
+            .fold((0.0, 0.0), |(v, s), (a, r)| {
+                let term = (a * r.lo).max(a * r.hi);
 
-#[cfg(test)]
-mod tests {
-    use nalgebra::DMatrix;
-    use polyzonotope::{Interval, IntervalBox, Zonotope};
+                (v + term, s + term.abs())
+            });
+        let terms = h.normal.len() + 1;
 
-    use super::*;
-
-    /// The zonotope with `center` and generator columns `generators`, in sparse form.
-    fn zonotope(center: [f64; 2], generators: &[[f64; 2]]) -> SparsePolyZonotope {
-        let g = DMatrix::from_fn(2, generators.len(), |i, j| generators[j][i]);
-
-        SparsePolyZonotope::from_zonotope(&Zonotope::new(DVector::from_column_slice(&center), g))
-    }
-
-    /// The box `center ± half_width` as a set.
-    fn square(center: [f64; 2], half_width: f64) -> SparsePolyZonotope {
-        let b = IntervalBox(
-            center
-                .iter()
-                .map(|c| Interval::new(c - half_width, c + half_width))
-                .collect(),
-        );
-
-        SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&b))
-    }
-
-    #[test]
-    fn a_smaller_box_is_inside_a_rotated_square() {
-        // The diamond |x| + |y| <= 1.
-        let diamond = zonotope([0.0, 0.0], &[[0.5, 0.5], [0.5, -0.5]]);
-
-        assert!(proven_within(&square([0.0, 0.0], 0.45), &diamond, 4));
-        assert!(proven_within(&square([0.2, 0.0], 0.3), &diamond, 4));
-    }
-
-    #[test]
-    fn a_box_whose_hull_fits_but_corners_stick_out_is_not_inside() {
-        // The diamond's hull is [-1, 1]², which contains the box; the box's corners
-        // (0.6, 0.6) are outside the diamond. The hull test would call it inside.
-        let diamond = zonotope([0.0, 0.0], &[[0.5, 0.5], [0.5, -0.5]]);
-
-        assert!(!proven_within(&square([0.0, 0.0], 0.6), &diamond, 8));
-    }
-
-    #[test]
-    fn equal_representations_are_inside_but_touching_sets_are_not() {
-        let a = square([0.3, 0.7], 0.25);
-        let swapped = zonotope([0.3, 0.7], &[[0.0, 0.25], [0.25, 0.0]]);
-
-        assert!(
-            proven_within(&a, &square([0.3, 0.7], 0.25), 8),
-            "same entries"
-        );
-        // The same set with its generators swapped: rounding the offsets down makes the
-        // boundary strict, so the touching set is not proven inside.
-        assert!(!proven_within(&swapped, &a, 8));
-        assert!(proven_within(&square([0.3, 0.7], 0.2499), &a, 8));
-    }
-
-    #[test]
-    fn a_segment_bounds_its_own_direction() {
-        let segment = zonotope([0.0, 0.0], &[[1.0, 1.0]]);
-        let point_far_along = zonotope([3.0, 3.0], &[[1e-3, 0.0]]);
-
-        assert!(!proven_within(&point_far_along, &segment, 8));
-    }
-
-    #[test]
-    fn shared_factors_and_other_dimensions_are_not_decided() {
-        let shared = SparsePolyZonotope::new(
-            DVector::from_column_slice(&[0.0, 0.0]),
-            DMatrix::from_column_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]),
-            DMatrix::zeros(2, 0),
-            DMatrix::from_column_slice(1, 2, &[1, 1]),
-            vec![polyzonotope::FactorId::fresh()],
-        )
-        .expect("valid shape");
-        let cube = SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&IntervalBox(vec![
-            Interval::new(-1.0, 1.0);
-            3
-        ])));
-
-        assert!(!is_zonotope(&shared), "one factor drives two generators");
-        assert!(!proven_within(&square([0.0, 0.0], 0.01), &shared, 8));
-        let small_cube =
-            SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&IntervalBox(vec![
-                Interval::new(
-                    -0.5, 0.5
-                );
-                3
-            ])));
-        assert!(!proven_within(&small_cube, &cube, 8), "3D is not decided");
-    }
-
-    #[test]
-    fn offsets_are_rounded_down() {
-        let generators = [[0.1, 0.2], [0.3, -0.7]];
-        let c = [1.0 / 3.0, 2.0 / 3.0];
-
-        for n in [[0.7, 0.1], [-0.2, 0.9]] {
-            let exact = n[0] * c[0] + n[1] * c[1];
-            let bound = support_lower_bound(&n, &c, &generators);
-            let sum: f64 = generators
-                .iter()
-                .map(|g| (n[0] * g[0] + n[1] * g[1]).abs())
-                .sum();
-
-            assert!(bound < exact + sum, "strictly below the f64 value");
-            assert!(exact + sum - bound < 1e-14, "but only by rounding error");
-        }
-    }
-
-    #[test]
-    fn non_finite_outer_sets_are_not_decided() {
-        let huge = zonotope([0.0, 0.0], &[[1e308, 1e308], [1e308, -1e308]]);
-        let nan = zonotope([0.0, 0.0], &[[f64::NAN, 1.0], [1.0, 0.0]]);
-        let small = square([0.0, 0.0], 0.1);
-
-        assert!(
-            !proven_within(&small, &huge, 4),
-            "overflowing offsets cut nothing"
-        );
-        assert!(
-            !proven_within(&small, &nan, 4),
-            "NaN facets are never refuted"
-        );
-    }
+        value + 2.0 * gamma(terms) * scale + count_to_f64(terms) * f64::MIN_POSITIVE <= h.offset
+    })
 }

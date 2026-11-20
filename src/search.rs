@@ -33,7 +33,7 @@
 //! the sets. Pruning never affects safety, since every kept edge is still proven, but it can
 //! drop a node whose set is thinner than its hull and so cost completeness in tight
 //! passages. [`Dedup::Proven`] replaces it with a proof that one set lies inside the other
-//! ([`proven_within`]), decided for planar zonotopes only, at the
+//! ([`decide_within`]), for zonotopes in up to four dimensions, at the
 //! price of keeping many more nodes.
 //!
 //! # Examples
@@ -97,12 +97,12 @@
 use core::{cmp::Ordering, fmt};
 use std::collections::{BinaryHeap, HashMap};
 
-use polyzonotope::{Containment, IntervalBox, SparsePolyZonotope};
+use polyzonotope::{Containment, Interval, IntervalBox, Polytope, SparsePolyZonotope};
 use sampling_planning::{Euclidean, Path, StateSpace};
 
 use crate::{
-    Cost, Goal, Node, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge, node,
-    proven_within,
+    Cost, Goal, Node, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge,
+    containment::decide_within, node,
 };
 
 /// Everything [`ReachSearch`] needs to know about the world.
@@ -187,25 +187,41 @@ pub struct Config {
     /// How one node's set is shown to lie inside another's for deduplication.
     /// [`Dedup::Hull`] by default.
     pub dedup: Dedup,
+    /// Require whole sets, not only nominal states, to stay in [`Problem::bounds`]. Off by
+    /// default; without bounds it has no effect.
+    ///
+    /// When on, the start set and every cover set and end set of an edge must be proven
+    /// inside the bounds box ([`Containment::Inside`] within the obstacles' split budget).
+    /// An edge that is not proven inside is dropped like an unsafe one. The proof is
+    /// rigorous with the `sound` feature.
+    pub bounds_contain_sets: bool,
 }
 
 /// The set-in-set test behind deduplication; see [`Config::dedup`].
 ///
 /// Deduplication never affects safety, only which nodes are kept, so both are safe to use.
 /// They differ in what "node A covers node B" means.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Dedup {
     /// Interval hulls: A's hull inside B's hull. Cheap and works in every dimension, but a
     /// heuristic: A's set can stick out of B's set where B is thinner than its hull. The
     /// default.
     #[default]
     Hull,
-    /// A proof that A's set lies inside B's set, via [`proven_within`]:
-    /// decided for planar sets whose outer set is a zonotope, and never claimed otherwise,
-    /// so in other dimensions nothing is deduplicated. Sets that touch, including identical
-    /// ones, are not proven inside each other, so it keeps more nodes than
-    /// [`Dedup::Hull`]. The hull test runs first as a cheap filter.
-    Proven,
+    /// A proof that A's set lies inside B's set inflated by `tolerance` along every axis,
+    /// via [`decide_within`]. Where that test does not handle B's shape (not a zonotope,
+    /// more than [`MAX_DIMENSION`](crate::containment::MAX_DIMENSION) dimensions or
+    /// [`MAX_GENERATORS`](crate::containment::MAX_GENERATORS) generators, or a rank it
+    /// cannot prove full), it falls back to the hull test.
+    ///
+    /// With `tolerance` 0, sets that only touch are never merged, which keeps many more
+    /// nodes than [`Dedup::Hull`]. A small positive tolerance (`1e-9` merges rounding
+    /// noise) merges them, and the dominance then holds up to `tolerance`. The hull test,
+    /// widened by `tolerance`, runs first as a cheap filter.
+    Proven {
+        /// How far, along every axis, A may stick out of B. Finite and non-negative.
+        tolerance: f64,
+    },
 }
 
 impl Default for Config {
@@ -220,6 +236,7 @@ impl Default for Config {
             cost: Cost::Length,
             prune_superseded_subtrees: false,
             dedup: Dedup::Hull,
+            bounds_contain_sets: false,
         }
     }
 }
@@ -237,6 +254,8 @@ pub enum Error {
     GoalRadiusUnavailable,
     /// [`Problem::bounds`] has a NaN or inverted bound, or does not contain the start.
     InvalidBounds,
+    /// The tolerance of [`Dedup::Proven`] is negative or not finite.
+    InvalidDedupTolerance,
     /// The weight of [`Config::cost`] is negative or not finite.
     InvalidCostWeight,
 }
@@ -248,6 +267,9 @@ impl fmt::Display for Error {
             Self::ResolutionOutOfRange => f.write_str("resolution must be positive and finite"),
             Self::GoalRadiusOutOfRange => f.write_str("goal radius must be non-negative"),
             Self::GoalRadiusUnavailable => f.write_str("the goal provides no radius"),
+            Self::InvalidDedupTolerance => {
+                f.write_str("dedup tolerance must be finite and non-negative")
+            }
             Self::InvalidBounds => {
                 f.write_str("bounds must be ordered, not NaN, and contain the start")
             }
@@ -316,6 +338,9 @@ pub struct ReachSearch<R: Reach<N>, const N: usize, G = PolytopeGoal<N>> {
     expansions: usize,
     /// The resolved [`Config::goal_radius`]; non-negative, may be infinite.
     goal_radius: f64,
+    /// The bounds box that whole sets must stay in, if [`Config::bounds_contain_sets`] is
+    /// on and there are bounds.
+    workspace: Option<Polytope>,
     /// Child ids by node id; kept for [`Config::prune_superseded_subtrees`].
     children: Vec<Vec<usize>>,
     /// Descendants skipped by [`Config::prune_superseded_subtrees`] so far.
@@ -340,10 +365,22 @@ where
     /// - [`Error::GoalRadiusUnavailable`] if the radius should come from a goal that has
     ///   none.
     /// - [`Error::InvalidCostWeight`] if the cost weight is negative or not finite.
-    /// - [`Error::InvalidBounds`] if the bounds are NaN, inverted or exclude the start.
+    /// - [`Error::InvalidBounds`] if the bounds are NaN, inverted or exclude the start, or,
+    ///   with [`Config::bounds_contain_sets`], do not provably contain the start set.
+    /// - [`Error::InvalidDedupTolerance`] if the proven-dedup tolerance is negative or not
+    ///   finite.
     /// - [`Error::StartNotSafe`] if the start set is not proven disjoint from every obstacle.
     pub fn new(problem: Problem<R, N, G>, config: Config) -> Result<Self, Error> {
         let goal_radius = validate(&problem, &config)?;
+        let workspace = workspace(&problem, &config);
+
+        if workspace
+            .as_ref()
+            .is_some_and(|box_| !is_inside(&problem.start_set, box_, &problem.obstacles))
+        {
+            return Err(Error::InvalidBounds);
+        }
+
         let verdict = problem.obstacles.check_set(&problem.start_set);
 
         if !verdict.is_safe() {
@@ -368,6 +405,7 @@ where
             superseded: Vec::new(),
             expansions: 0,
             goal_radius,
+            workspace,
             children: Vec::new(),
             pruned: 0,
             goal_node: None,
@@ -519,7 +557,7 @@ where
             &mut self.cover,
         );
 
-        if !verdict.is_safe() {
+        if !verdict.is_safe() || !self.sets_in_workspace(&set) {
             return None;
         }
 
@@ -590,13 +628,16 @@ where
         inner: (&SparsePolyZonotope, &IntervalBox),
         outer: (&SparsePolyZonotope, &IntervalBox),
     ) -> bool {
-        box_within(inner.1, outer.1)
-            && match self.config.dedup {
-                Dedup::Hull => true,
-                Dedup::Proven => {
-                    proven_within(inner.0, outer.0, self.problem.obstacles.max_splits())
-                }
+        match self.config.dedup {
+            Dedup::Hull => box_within(inner.1, outer.1, 0.0),
+            Dedup::Proven { tolerance } => {
+                let splits = self.problem.obstacles.max_splits();
+
+                box_within(inner.1, outer.1, tolerance)
+                    && decide_within(inner.0, outer.0, tolerance, splits)
+                        .unwrap_or_else(|| box_within(inner.1, outer.1, 0.0))
             }
+        }
     }
 
     /// Adds `node` with path cost `cost` and interval hull `hull` to the tree, its cell and
@@ -657,6 +698,17 @@ where
         }
     }
 
+    /// Whether `end` and the cover sets of the edge just checked are proven inside the
+    /// workspace box, if whole sets must stay there.
+    fn sets_in_workspace(&self, end: &SparsePolyZonotope) -> bool {
+        self.workspace.as_ref().is_none_or(|box_| {
+            let obstacles = &self.problem.obstacles;
+
+            is_inside(end, box_, obstacles)
+                && self.cover.iter().all(|set| is_inside(set, box_, obstacles))
+        })
+    }
+
     /// Whether `nominal` lies in [`Problem::bounds`], if there are any.
     fn in_bounds(&self, nominal: &[f64; N]) -> bool {
         self.problem.bounds.is_none_or(|(lower, upper)| {
@@ -686,6 +738,22 @@ where
     }
 }
 
+/// The bounds of `problem` as a polytope, if [`Config::bounds_contain_sets`] is on.
+fn workspace<R, const N: usize, G>(
+    problem: &Problem<R, N, G>,
+    config: &Config,
+) -> Option<Polytope> {
+    let (lower, upper) = problem.bounds.filter(|_| config.bounds_contain_sets)?;
+    let box_ = IntervalBox((0..N).map(|i| Interval::new(lower[i], upper[i])).collect());
+
+    Some(Polytope::from_box(&box_))
+}
+
+/// Whether `set` is proven inside `box_` within the split budget of `obstacles`.
+fn is_inside(set: &SparsePolyZonotope, box_: &Polytope, obstacles: &Obstacles) -> bool {
+    set.containment(box_, obstacles.max_splits()) == Containment::Inside
+}
+
 /// Checks `config` and the bounds of `problem`, and resolves the goal radius.
 fn validate<R, const N: usize, G: Goal<N>>(
     problem: &Problem<R, N, G>,
@@ -697,6 +765,12 @@ fn validate<R, const N: usize, G: Goal<N>>(
 
     if !config.cost.is_valid() {
         return Err(Error::InvalidCostWeight);
+    }
+
+    if let Dedup::Proven { tolerance } = config.dedup
+        && !(tolerance.is_finite() && tolerance >= 0.0)
+    {
+        return Err(Error::InvalidDedupTolerance);
     }
 
     if let Some((lower, upper)) = problem.bounds {
@@ -718,14 +792,14 @@ fn validate<R, const N: usize, G: Goal<N>>(
     }
 }
 
-/// Whether box `inner` lies inside box `outer`, bound by bound.
-fn box_within(inner: &IntervalBox, outer: &IntervalBox) -> bool {
+/// Whether box `inner` lies inside box `outer` widened by `tolerance`, bound by bound.
+fn box_within(inner: &IntervalBox, outer: &IntervalBox, tolerance: f64) -> bool {
     inner.dim() == outer.dim()
         && inner
             .0
             .iter()
             .zip(&outer.0)
-            .all(|(i, o)| o.lo <= i.lo && i.hi <= o.hi)
+            .all(|(i, o)| o.lo - tolerance <= i.lo && i.hi <= o.hi + tolerance)
 }
 
 #[cfg(test)]
@@ -833,7 +907,10 @@ mod tests {
         ));
         let diamond_hull = diamond.interval_hull();
 
-        for (dedup, dropped) in [(Dedup::Hull, true), (Dedup::Proven, false)] {
+        for (dedup, dropped) in [
+            (Dedup::Hull, true),
+            (Dedup::Proven { tolerance: 0.0 }, false),
+        ] {
             let mut search = empty_search(false);
             search.config.dedup = dedup;
             push(&mut search, 0, [1.0, 0.0], 1.0, 0.6);
@@ -846,7 +923,7 @@ mod tests {
         }
 
         let mut search = empty_search(false);
-        search.config.dedup = Dedup::Proven;
+        search.config.dedup = Dedup::Proven { tolerance: 0.0 };
         push(&mut search, 0, [1.0, 0.0], 1.0, 0.3);
         assert!(
             search.is_dominated(&[1.0, 0.0], &diamond, &diamond_hull, 2.0),
@@ -883,10 +960,13 @@ mod tests {
     #[test]
     fn box_within_compares_every_bound() {
         let b = |lo: f64, hi: f64| IntervalBox(vec![Interval::new(lo, hi); 2]);
+        let box_within_exact =
+            |inner: &IntervalBox, outer: &IntervalBox| box_within(inner, outer, 0.0);
 
-        assert!(box_within(&b(1.0, 2.0), &b(0.0, 3.0)));
-        assert!(box_within(&b(1.0, 2.0), &b(1.0, 2.0)));
-        assert!(!box_within(&b(0.0, 3.0), &b(1.0, 2.0)));
-        assert!(!box_within(&b(0.5, 3.5), &b(0.0, 3.0)));
+        assert!(box_within_exact(&b(1.0, 2.0), &b(0.0, 3.0)));
+        assert!(box_within_exact(&b(1.0, 2.0), &b(1.0, 2.0)));
+        assert!(!box_within_exact(&b(0.0, 3.0), &b(1.0, 2.0)));
+        assert!(!box_within_exact(&b(0.5, 3.5), &b(0.0, 3.0)));
+        assert!(box_within(&b(0.5, 3.5), &b(0.0, 3.0), 0.5));
     }
 }

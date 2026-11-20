@@ -1,6 +1,6 @@
 //! Reachability-guided search with the affine model on 2D worlds.
 
-use polyzonotope::{Intersection, SparsePolyZonotope, Zonotope};
+use polyzonotope::{Containment, Intersection, Polytope, SparsePolyZonotope, Zonotope};
 use rand_pcg::Pcg64Mcg;
 use robust_planning::{
     Cost, Obstacles, PolytopeGoal, Reach,
@@ -425,7 +425,7 @@ fn proven_dedup_finds_the_same_optimum_and_stays_sound() {
     // A small open world: proven deduplication keeps many more nodes (on the slalom about
     // ten times the expansions of the hull test), which is too slow for a debug test there.
     let proven = Config {
-        dedup: Dedup::Proven,
+        dedup: Dedup::Proven { tolerance: 0.0 },
         ..astar()
     };
     let mut strict = search(&[], [1.0, 1.0], [4.0, 2.0], proven);
@@ -437,4 +437,93 @@ fn proven_dedup_finds_the_same_optimum_and_stays_sound() {
     assert!((s.cost - h.cost).abs() < 1e-9);
     assert!(strict.nodes().len() >= hull.nodes().len());
     assert_every_edge_disjoint(&strict, &[]);
+}
+
+#[test]
+#[ignore = "slow in debug builds; run with --release -- --ignored --nocapture"]
+fn proven_dedup_expansions_on_the_slalom() {
+    let hull = {
+        let mut search = search(&SLALOM, [1.0, 1.0], [9.0, 9.0], astar());
+        let path = search.solve().expect("the slalom is solvable");
+
+        (search.expansions(), path.cost)
+    };
+    eprintln!("hull: expansions {} cost {}", hull.0, hull.1);
+
+    for tolerance in [0.0, 1e-12, 1e-9, 1e-6] {
+        let config = Config {
+            dedup: Dedup::Proven { tolerance },
+            ..astar()
+        };
+        let mut search = search(&SLALOM, [1.0, 1.0], [9.0, 9.0], config);
+        let path = search.solve().expect("the slalom is solvable");
+        eprintln!(
+            "proven tolerance {tolerance:e}: expansions {} cost {}",
+            search.expansions(),
+            path.cost
+        );
+
+        assert!((path.cost - hull.1).abs() < 1e-9);
+        assert_every_edge_disjoint(&search, &SLALOM);
+    }
+}
+
+#[test]
+fn bounded_sets_stay_proven_inside_the_workspace() {
+    let bounds = ([0.0, 0.0], [4.0, 4.0]);
+    let sets = Config {
+        bounds_contain_sets: true,
+        ..Config::default()
+    };
+    let mut nominal = bounded(&[], [9.0, 9.0], Some(bounds), Config::default()).expect("valid");
+    let mut whole = bounded(&[], [9.0, 9.0], Some(bounds), sets).expect("valid");
+    nominal.solve();
+    whole.solve();
+
+    assert!(whole.is_exhausted());
+    assert!(
+        whole.nodes().len() < nominal.nodes().len(),
+        "nodes on the border have sets that stick out"
+    );
+
+    let workspace = Polytope::from_box(&interval_box(&bounds));
+    let mut cover = Vec::new();
+
+    for node in &whole.nodes()[1..] {
+        let parent = &whole.nodes()[node.parent.expect("non-root")];
+        cover.clear();
+        let end = whole.problem().reach.propagate(
+            &parent.set,
+            node.control.as_ref().expect("non-root"),
+            &mut cover,
+        );
+
+        for set in cover.iter().chain([&end]) {
+            assert_eq!(set.containment(&workspace, SPLITS), Containment::Inside);
+        }
+    }
+
+    let mut reachable = bounded(&[], [3.0, 3.0], Some(bounds), sets).expect("valid");
+    assert!(
+        reachable.solve().is_some(),
+        "the goal box lies inside the bounds"
+    );
+}
+
+#[test]
+fn a_start_set_outside_the_workspace_is_rejected_only_when_sets_are_bounded() {
+    use robust_planning::search::Error;
+
+    // The start set reaches down to 0.9; the nominal start 1.0 is inside.
+    let bounds = Some(([0.95, 0.95], [4.0, 4.0]));
+    let sets = Config {
+        bounds_contain_sets: true,
+        ..Config::default()
+    };
+
+    assert!(bounded(&[], [3.0, 3.0], bounds, Config::default()).is_ok());
+    assert_eq!(
+        bounded(&[], [3.0, 3.0], bounds, sets).err(),
+        Some(Error::InvalidBounds)
+    );
 }

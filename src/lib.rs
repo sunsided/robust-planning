@@ -25,8 +25,9 @@
 //!   convex polytope in H-representation; it answers
 //!   [`Containment::Inside`](polyzonotope::Containment::Inside) only when the set is proven
 //!   inside.
-//! - [`proven_within`]: proves one planar set inside a planar zonotope, through
-//!   polyzonotope's set-in-polytope test on an inner H-representation.
+//! - [`proven_within`] and [`decide_within`]: prove one set inside a zonotope in up to four
+//!   dimensions, through polyzonotope's set-in-polytope test on an inner
+//!   H-representation with rigorously rounded facets.
 //! - [`ReachChecker`]: a [`sampling_planning::ValidityChecker`] that runs a [`Reach`] model
 //!   along each motion, so `sampling-planning`'s planners only accept proven-safe edges.
 //! - [`RobustRrt`]: an RRT whose nodes carry the reachable set they are reached with.
@@ -52,7 +53,7 @@
 #![forbid(unsafe_code)]
 
 mod checker;
-mod containment;
+pub mod containment;
 mod cost;
 mod goal;
 mod node;
@@ -65,7 +66,7 @@ mod steer;
 mod verdict;
 
 pub use checker::ReachChecker;
-pub use containment::proven_within;
+pub use containment::{decide_within, proven_within};
 pub use cost::Cost;
 pub use goal::{Goal, PolytopeGoal};
 pub use node::Node;

@@ -77,7 +77,7 @@ fn bench_slalom(criterion: &mut Criterion) {
 fn bench_open_proven(criterion: &mut Criterion) {
     let config = Config {
         goal_radius: GoalRadius::FromGoal,
-        dedup: Dedup::Proven,
+        dedup: Dedup::Proven { tolerance: 0.0 },
         ..Config::default()
     };
     let open = || {
