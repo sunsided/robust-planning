@@ -27,11 +27,14 @@
 //! Nominal states are binned into lattice cells of width [`Config::resolution`]. A new node
 //! is dropped when a node already in its cell has a cost at most as high and an interval
 //! hull inside the new node's interval hull. Conversely, a new node supersedes the older
-//! nodes in its cell that it dominates, and they are skipped when popped. This is a heuristic dominance test: proving
-//! one polynomial zonotope inside another is not available in polyzonotope 0.2, so the
-//! hulls stand in for the sets. Pruning never affects safety, since every kept edge is
-//! still proven, but it can drop a node whose set is thinner than its hull and so cost
-//! completeness in tight passages.
+//! nodes in its cell that it dominates, and they are skipped when popped.
+//!
+//! By default ([`Dedup::Hull`]) this is a heuristic dominance test: the hulls stand in for
+//! the sets. Pruning never affects safety, since every kept edge is still proven, but it can
+//! drop a node whose set is thinner than its hull and so cost completeness in tight
+//! passages. [`Dedup::Proven`] replaces it with a proof that one set lies inside the other
+//! ([`proven_within`]), decided for planar zonotopes only, at the
+//! price of keeping many more nodes.
 //!
 //! # Examples
 //!
@@ -99,6 +102,7 @@ use sampling_planning::{Euclidean, Path, StateSpace};
 
 use crate::{
     Cost, Goal, Node, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge, node,
+    proven_within,
 };
 
 /// Everything [`ReachSearch`] needs to know about the world.
@@ -180,12 +184,34 @@ pub struct Config {
     /// A node that is already expanded is then superseded only by a node of exactly equal
     /// cost, so this rarely prunes anything; it saves work only on such ties.
     pub prune_superseded_subtrees: bool,
+    /// How one node's set is shown to lie inside another's for deduplication.
+    /// [`Dedup::Hull`] by default.
+    pub dedup: Dedup,
+}
+
+/// The set-in-set test behind deduplication; see [`Config::dedup`].
+///
+/// Deduplication never affects safety, only which nodes are kept, so both are safe to use.
+/// They differ in what "node A covers node B" means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Dedup {
+    /// Interval hulls: A's hull inside B's hull. Cheap and works in every dimension, but a
+    /// heuristic: A's set can stick out of B's set where B is thinner than its hull. The
+    /// default.
+    #[default]
+    Hull,
+    /// A proof that A's set lies inside B's set, via [`proven_within`]:
+    /// decided for planar sets whose outer set is a zonotope, and never claimed otherwise,
+    /// so in other dimensions nothing is deduplicated. Sets that touch, including identical
+    /// ones, are not proven inside each other, so it keeps more nodes than
+    /// [`Dedup::Hull`]. The hull test runs first as a cheap filter.
+    Proven,
 }
 
 impl Default for Config {
     /// A resolution of `1e-6` (merging only rounding noise), an infinite goal radius
-    /// (uniform-cost search), at most 10 000 expansions, length costs and no subtree
-    /// pruning.
+    /// (uniform-cost search), at most 10 000 expansions, length costs, no subtree pruning
+    /// and hull deduplication.
     fn default() -> Self {
         Self {
             resolution: 1e-6,
@@ -193,6 +219,7 @@ impl Default for Config {
             max_expansions: 10_000,
             cost: Cost::Length,
             prune_superseded_subtrees: false,
+            dedup: Dedup::Hull,
         }
     }
 }
@@ -499,7 +526,7 @@ where
         let cost = self.costs[id] + self.config.cost.edge(length, &set);
         let hull = set.interval_hull();
 
-        if self.is_dominated(&nominal, &hull, cost) {
+        if self.is_dominated(&nominal, &set, &hull, cost) {
             return None;
         }
 
@@ -513,13 +540,59 @@ where
         Some((child, cost, hull))
     }
 
-    /// Whether a node in the cell of `nominal` costs at most `cost` and has a hull inside
-    /// `hull`.
-    fn is_dominated(&self, nominal: &[f64; N], hull: &IntervalBox, cost: f64) -> bool {
+    /// Whether a node in the cell of `nominal` costs at most `cost` and covers the set
+    /// `set` with interval hull `hull`, by [`Config::dedup`].
+    fn is_dominated(
+        &self,
+        nominal: &[f64; N],
+        set: &SparsePolyZonotope,
+        hull: &IntervalBox,
+        cost: f64,
+    ) -> bool {
         self.cells.get(&self.cell(nominal)).is_some_and(|ids| {
-            ids.iter()
-                .any(|&e| self.costs[e] <= cost && box_within(&self.hulls[e], hull))
+            ids.iter().any(|&e| {
+                self.costs[e] <= cost
+                    && self.covers((&self.nodes[e].set, &self.hulls[e]), (set, hull))
+            })
         })
+    }
+
+    /// The nodes in the cell of `nominal` that a node with cost `cost`, set `set` and hull
+    /// `hull` dominates.
+    fn dominated_by(
+        &self,
+        nominal: &[f64; N],
+        set: &SparsePolyZonotope,
+        hull: &IntervalBox,
+        cost: f64,
+    ) -> Vec<usize> {
+        self.cells
+            .get(&self.cell(nominal))
+            .map(|ids| {
+                ids.iter()
+                    .copied()
+                    .filter(|&e| {
+                        cost <= self.costs[e]
+                            && self.covers((set, hull), (&self.nodes[e].set, &self.hulls[e]))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Whether the set `inner` with its hull lies inside `outer`, by [`Config::dedup`].
+    fn covers(
+        &self,
+        inner: (&SparsePolyZonotope, &IntervalBox),
+        outer: (&SparsePolyZonotope, &IntervalBox),
+    ) -> bool {
+        box_within(inner.1, outer.1)
+            && match self.config.dedup {
+                Dedup::Hull => true,
+                Dedup::Proven => {
+                    proven_within(inner.0, outer.0, self.problem.obstacles.max_splits())
+                }
+            }
     }
 
     /// Adds `node` with path cost `cost` and interval hull `hull` to the tree, its cell and
@@ -527,13 +600,11 @@ where
     fn push(&mut self, node: Node<R::Control, N>, cost: f64, hull: IntervalBox) {
         let id = self.nodes.len();
         let f = cost + self.heuristic(&node.nominal);
-        let cell = self.cells.entry(self.cell(&node.nominal)).or_default();
-        let dominated: Vec<usize> = cell
-            .iter()
-            .copied()
-            .filter(|&e| cost <= self.costs[e] && box_within(&hull, &self.hulls[e]))
-            .collect();
-        cell.push(id);
+        let dominated = self.dominated_by(&node.nominal, &node.set, &hull, cost);
+        self.cells
+            .entry(self.cell(&node.nominal))
+            .or_default()
+            .push(id);
 
         if let Some(parent) = node.parent {
             self.children[parent].push(id);
@@ -746,6 +817,37 @@ mod tests {
             assert!(!search.superseded[other] && !search.superseded[d]);
             assert_eq!(search.pruned(), if prune { 2 } else { 0 });
         }
+    }
+
+    #[test]
+    fn proven_dedup_keeps_a_node_the_hull_test_wrongly_drops() {
+        // A box of half width 0.6 is not inside the diamond |x| + |y| <= 1, although its
+        // hull is inside the diamond's hull [-1, 1]².
+        let diamond = SparsePolyZonotope::from_zonotope(&Zonotope::new(
+            nalgebra::DVector::from_column_slice(&[1.0, 0.0]),
+            nalgebra::DMatrix::from_column_slice(2, 2, &[0.5, 0.5, 0.5, -0.5]),
+        ));
+        let diamond_hull = diamond.interval_hull();
+
+        for (dedup, dropped) in [(Dedup::Hull, true), (Dedup::Proven, false)] {
+            let mut search = empty_search(false);
+            search.config.dedup = dedup;
+            push(&mut search, 0, [1.0, 0.0], 1.0, 0.6);
+
+            assert_eq!(
+                search.is_dominated(&[1.0, 0.0], &diamond, &diamond_hull, 2.0),
+                dropped,
+                "{dedup:?}"
+            );
+        }
+
+        let mut search = empty_search(false);
+        search.config.dedup = Dedup::Proven;
+        push(&mut search, 0, [1.0, 0.0], 1.0, 0.3);
+        assert!(
+            search.is_dominated(&[1.0, 0.0], &diamond, &diamond_hull, 2.0),
+            "a box of half width 0.3 is proven inside"
+        );
     }
 
     #[test]

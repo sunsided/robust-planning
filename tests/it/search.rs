@@ -4,7 +4,7 @@ use polyzonotope::{Intersection, SparsePolyZonotope, Zonotope};
 use rand_pcg::Pcg64Mcg;
 use robust_planning::{
     Cost, Obstacles, PolytopeGoal, Reach,
-    search::{Config, GoalRadius, Problem, ReachSearch},
+    search::{Config, Dedup, GoalRadius, Problem, ReachSearch},
 };
 use sampling_planning::rand_core::SeedableRng;
 
@@ -418,4 +418,23 @@ fn pruning_superseded_subtrees_stays_sound() {
             &mut rng,
         );
     }
+}
+
+#[test]
+fn proven_dedup_finds_the_same_optimum_and_stays_sound() {
+    // A small open world: proven deduplication keeps many more nodes (on the slalom about
+    // ten times the expansions of the hull test), which is too slow for a debug test there.
+    let proven = Config {
+        dedup: Dedup::Proven,
+        ..astar()
+    };
+    let mut strict = search(&[], [1.0, 1.0], [4.0, 2.0], proven);
+    let mut hull = search(&[], [1.0, 1.0], [4.0, 2.0], astar());
+    let s = strict.solve().expect("the open world is solvable");
+    let h = hull.solve().expect("the open world is solvable");
+
+    assert!((s.cost - (2.0 + 2.0f64.sqrt())).abs() < 1e-9);
+    assert!((s.cost - h.cost).abs() < 1e-9);
+    assert!(strict.nodes().len() >= hull.nodes().len());
+    assert_every_edge_disjoint(&strict, &[]);
 }

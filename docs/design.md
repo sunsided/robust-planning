@@ -218,9 +218,12 @@ A* optimality condition.
   `1e-6`, which merges rounding noise only). A new node is dropped if a node in its cell
   costs at most as much and has an interval hull inside the new node's hull. A new node
   that dominates older nodes in its cell supersedes them, and they are skipped when popped.
-  Dominance compares interval hulls, because polyzonotope 0.2 cannot prove one polynomial
-  zonotope inside another. Pruning never affects safety, but it can cost completeness in
-  passages where a set is much thinner than its hull.
+  `Config::dedup` picks the set-in-set test. `Dedup::Hull` (the default) compares
+  interval hulls, a heuristic: pruning never affects safety, but it can cost completeness
+  in passages where a set is much thinner than its hull. `Dedup::Proven` proves the
+  containment instead (next section). On the slalom both find the same optimum (22.49),
+  but the proven test expands 3388 nodes against 350, because it never merges sets that
+  only touch.
 - **Workspace bounds.** `search::Problem::bounds` is an optional box for nominal states.
   Successors outside it are dropped before their edge is checked, so an open world needs
   no framing walls to stay finite. It bounds nominal states only; keeping whole sets
@@ -362,6 +365,35 @@ because it is dimension-independent in scale and cheap.
 `RobustRrtStar::run` does not stop at the first goal node, since later iterations keep
 lowering the cost. `stats()` counts committed, rejected and skipped rewires.
 
+## Proven set-in-set containment: `proven_within`
+
+polyzonotope 0.2 proves a set inside a polytope (`containment`) but not inside another
+set. Proving `A ⊆ B` through an *outer* polytope of `B` would be unsound: `A` inside a
+superset of `B` says nothing about `B`. What is needed is a polytope *inside* `B`.
+
+For a planar zonotope `B = c + Σ βᵢ gᵢ` that polytope is known in closed form. If `B` has
+rank 2, its edges are parallel to its generators, so `B` is exactly the intersection of the
+facet pairs `±nᵢᵀ x <= ±nᵢᵀ c + Σⱼ |nᵢᵀ gⱼ|` with `nᵢ = (-gᵢ,y, gᵢ,x)`. That normal is
+computed exactly (a swap and a negation). Only the offsets round, and `proven_within`
+rounds them down: it subtracts twice the bound `γ_{m+3} Σ |terms|` on the rounding error
+of a sum of dot products (Higham §3.1), plus an absolute term for underflow. The support
+pairs along each generator are added as well; they contain `B` anyway and make a rank-1
+zonotope (a segment) bounded. The result is a polytope inside `B`, so
+`A.containment(P) == Inside` proves `A ⊆ B`. With `sound` that last step is rigorous too.
+
+Scope and limits:
+
+- `B` must be a zonotope in sparse form: every dependent monomial one factor to the power
+  one, no factor in two monomials. Other sets, and every dimension but 2, answer `false`
+  (not decided). The nD case needs exact facet normals from `N - 1` generators, which do
+  not round exactly; an LP-based sufficient condition (Sadraddini and Tedrake) needs a
+  solver. Both are open.
+- Representations with equal entries (ids aside) describe the same set and are accepted
+  directly. Sets that merely touch are not proven, because the rounded-down offsets make
+  the boundary strict.
+- Containment of the *true* sets does not make the propagation monotone (Girard reduction
+  is not), so even a proven dominance can cost completeness; it never costs safety.
+
 ## Refinement by splitting before rejecting
 
 A set is only rejected after refinement has been tried. `Obstacles` passes its split budget
@@ -404,6 +436,9 @@ Nothing here changes another repo. These are requests to the owning sessions.
 
 **polyzonotope**
 
+- **Set-in-set containment**, at least zonotope-in-zonotope in every dimension, so that
+  `Dedup::Proven` works beyond the plane (today `proven_within` decides planar zonotopes
+  only).
 - **A certified witness** for `Intersection::Intersects`, so that an exact or
   under-approximated set can prove `Unsafe` through `Reach::certify_collision`: the factor
   values of a point of the set itself, plus an outward-rounded enclosure of its image that

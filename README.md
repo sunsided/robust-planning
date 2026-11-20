@@ -7,7 +7,8 @@ Planning over reachable sets under uncertainty: Robust-RRT and reachability-guid
 - [x] Robust-RRT: an RRT whose nodes carry reachable sets (`RobustRrt`)
 - [x] Reachability-guided search: A* over reachable-set nodes along motion primitives,
   with lattice deduplication, optional workspace bounds, a goal radius derived from the
-  goal, and opt-in pruning of superseded subtrees (`ReachSearch`)
+  goal, opt-in pruning of superseded subtrees, and opt-in proven set-in-set
+  deduplication for planar zonotopes (`ReachSearch`, `proven_within`)
 - [x] A robustness-weighted cost (`Cost::WidthWeighted`) for `RobustRrtStar` and `ReachSearch`
 - [x] Edge checks for `sampling-planning` planners (`ReachChecker`)
 - [x] Pluggable steering (`Steer`, `WithSteering`), goals (`Goal`, `PolytopeGoal`) and
