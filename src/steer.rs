@@ -5,7 +5,7 @@
 //! traits. A model that only propagates sets is paired with a steering function through
 //! [`WithSteering`].
 
-use polyzonotope::SparsePolyZonotope;
+use polyzonotope::{Polytope, SparsePolyZonotope};
 use sampling_planning::{Euclidean, Steering, StraightLine};
 
 use crate::Reach;
@@ -100,6 +100,12 @@ impl<R: Reach<N>, S, const N: usize> Reach<N> for WithSteering<R, S> {
         cover: &mut Vec<SparsePolyZonotope>,
     ) -> SparsePolyZonotope {
         self.reach.propagate(initial, control, cover)
+    }
+
+    /// Forwards to the wrapped model, so pairing a model with a steering function keeps its
+    /// collision certificates.
+    fn certify_collision(&self, set: &SparsePolyZonotope, obstacle: &Polytope) -> Option<Vec<f64>> {
+        self.reach.certify_collision(set, obstacle)
     }
 }
 

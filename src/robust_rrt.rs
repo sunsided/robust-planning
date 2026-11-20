@@ -23,7 +23,7 @@ use sampling_planning::{
     Euclidean, LinearScan, NearestNeighbors, Path, Sampler, StateSpace, rand_core::Rng, unit_f64,
 };
 
-use crate::{Goal, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, reach::check_edge};
+use crate::{Goal, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge};
 
 /// Everything [`RobustRrt`] needs to know about the world.
 ///
@@ -74,7 +74,7 @@ pub struct Node<C, const N: usize> {
 }
 
 /// Why a [`RobustRrt`] could not be created.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     /// The start set is not proven safe; carries the verdict.
     StartNotSafe(SafetyVerdict),

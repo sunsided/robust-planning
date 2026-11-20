@@ -3,7 +3,7 @@
 use polyzonotope::{Containment, Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope};
 use sampling_planning::{Euclidean, Validity, ValidityChecker};
 
-use crate::{Obstacles, Reach, SafetyVerdict, Steer, reach::check_edge};
+use crate::{Obstacles, Reach, SafetyVerdict, Steer, check_edge};
 
 /// Checks states and motions of `sampling-planning`'s planners with reachable sets.
 ///

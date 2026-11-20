@@ -5,6 +5,7 @@ mod goal;
 mod simulate;
 mod steering;
 mod unknown;
+mod witness;
 mod world;
 
 use polyzonotope::Intersection;

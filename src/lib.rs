@@ -10,6 +10,9 @@
 //!
 //! - [`Reach`]: propagates a reachable set along one edge under one control. The crate defines
 //!   the trait; implementations come from the user (and later from `polyzonotope-reach`).
+//!   Its optional [`Reach::certify_collision`] hook lets a model whose sets are exact turn an
+//!   unproven edge into [`SafetyVerdict::Unsafe`] with a [`Witness`]; [`check_edge`] runs
+//!   one edge check.
 //! - [`Steer`]: picks the control of one edge. Implement it on the model, or pair a model
 //!   with a steering function through [`WithSteering`]; `sampling-planning`'s
 //!   [`StraightLine`](sampling_planning::StraightLine) steers models whose control is a
@@ -50,10 +53,10 @@ mod verdict;
 pub use checker::ReachChecker;
 pub use goal::{Goal, PolytopeGoal};
 pub use obstacles::Obstacles;
-pub use reach::Reach;
+pub use reach::{Reach, check_edge};
 pub use robust_rrt::RobustRrt;
 pub use steer::{Steer, WithSteering};
-pub use verdict::SafetyVerdict;
+pub use verdict::{SafetyVerdict, Witness};
 
 pub use polyzonotope;
 pub use sampling_planning;

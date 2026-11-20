@@ -69,7 +69,7 @@ trait is the seam that crate will plug into.
 
 ## Safety verdicts
 
-`SafetyVerdict { Safe, Unsafe, Indeterminate }`:
+`SafetyVerdict { Safe, Unsafe(Witness), Indeterminate }`:
 
 - `Safe`: the reachable set provably avoids every unsafe region.
 - `Unsafe`: some *actually reachable* state provably lies in an unsafe region.
@@ -87,9 +87,29 @@ trait is the seam that crate will plug into.
 
 `Intersects` would map to `Unsafe` only if it were proven. That needs two things: a
 certified witness, and a set that is exact or under-approximated, so that the witness is a
-real reachable state. polyzonotope 0.2 provides neither, so **no check in milestone 1
-produces `Unsafe`**. The variant is kept for later checks that can prove it, for example
-nominal trajectories through an obstacle, or under-approximations.
+real reachable state. polyzonotope 0.2 provides neither, so `from_intersection` never
+produces `Unsafe`.
+
+### Certified collisions: `Unsafe(Witness)`
+
+`SafetyVerdict::Unsafe` carries a `Witness { point, set, obstacle }`: the colliding state,
+the index of the cover set it lies in and the index of the obstacle. Without a witness
+there is no `Unsafe`, only `Indeterminate`. The verdict is therefore `Clone` and
+`PartialEq`, no longer `Copy`, `Eq` or `Hash`.
+
+The witness comes from a trait hook, `Reach::certify_collision(set, obstacle)`, which
+defaults to `None`. Only the model knows whether its cover sets are exact or
+under-approximated, so the hook lives with the model. `check_edge` calls it only for edges
+that are not proven safe, in time order, and keeps the first point that passes a plain-`f64`
+sanity check (inside the obstacle and inside the set's interval hull). That check guards
+against hook bugs; it is not a proof. `WithSteering` forwards the hook.
+
+A cargo feature was rejected: a feature that changes the shape of `Unsafe` is not additive,
+so enabling it in one crate of a build would break matches in another. Once polyzonotope
+offers a certified witness, a model with exact sets can implement the hook by calling it.
+
+Both `Unsafe` and `Indeterminate` are rejections, so a wrong witness can only cost a
+diagnostic, never soundness: `Safe` is decided before the hook runs.
 
 Verdicts over several sets and obstacles combine with `SafetyVerdict::and`: `Unsafe`
 dominates `Indeterminate`, which dominates `Safe`. `Obstacles::check_set` and
@@ -213,7 +233,9 @@ Nothing here changes another repo. These are requests to the owning sessions.
 **polyzonotope**
 
 - **A certified witness** for `Intersection::Intersects`, so that an exact or
-  under-approximated set can prove `Unsafe`.
+  under-approximated set can prove `Unsafe` through `Reach::certify_collision`: the factor
+  values of a point of the set itself, plus an outward-rounded enclosure of its image that
+  is proven inside every facet of the polytope.
 - **Under-approximations**, or an exactness flag, for the same reason.
 - **NaN facets in `containment`.** A facet with a NaN offset never refutes containment, so
   a set far outside it is reported `Inside`. `PolytopeGoal` guards against this locally.
