@@ -27,9 +27,21 @@ All sets are polyzonotope `SparsePolyZonotope`s. Zonotopes and boxes convert exa
 - **The goal region** is a convex `Polytope`. A node reaches the goal only when its whole
   reachable set is proven inside it (`Containment::Inside`). A node whose set merely
   overlaps the goal does not count.
-- **Dynamics** sit behind the `Reach` trait (see below). For one edge, `Reach::steer`
-  chooses a control and a nominal end state. `Reach::propagate` returns the sets that
-  cover the whole edge, plus the end set.
+- **Dynamics** sit behind the `Reach` trait (see below). `Reach::propagate` returns the
+  sets that cover the whole edge under one control, plus the end set.
+- **Steering** sits behind the separate `Steer<N, C>` trait. For one edge, `Steer::steer`
+  chooses a control of type `C` and a nominal end state. Planners require
+  `R: Reach<N> + Steer<N, R::Control>`. A model that steers itself implements both traits.
+  A model that only propagates is paired with a steering function through
+  `WithSteering::new(model, steering)`, which implements both by delegation. `Steer` is
+  implemented for `sampling_planning::StraightLine` with the end point as the control, for
+  models whose control is a setpoint. Steering is never trusted for safety: every control
+  is propagated and checked, so a bad steering function costs progress, not soundness.
+
+  Alternatives considered: a separate `steering` field on `Problem` and `ReachChecker`
+  would mirror `sampling-planning`, but would force every caller to name a steering value
+  even when the model steers itself. A blanket `impl Steer for R where R: Reach<Control =
+  [f64; N]>` would clash (E0119) with every setpoint model that wants its own steering.
 
 The model the tests and the example use is the affine system
 
@@ -113,7 +125,7 @@ polyzonotope computes in plain `f64`.
 payload. The adapter therefore assumes a fixed uncertainty *tube*: at every node the real
 state lies in the box `state ± half_widths`. A motion is `Valid` only if all of these hold:
 
-1. `Reach::steer(from, to)` ends exactly at `to`. Otherwise the result is `Unknown`, since
+1. `Steer::steer(from, to)` ends exactly at `to`. Otherwise the result is `Unknown`, since
    the next tube would be centered at the wrong state.
 2. Every cover set, propagated from the box at `from`, is proven disjoint from every
    obstacle. That covers every intermediate time step and the motion between them.
@@ -181,7 +193,8 @@ Nothing here changes another repo. These are requests to the owning sessions.
   reuse `trees::Rrt` and `RrtStar`, instead of a local tree.
 - **Steering that returns controls.** `Steering::steer` returns only a state. Kinodynamic
   and robust planners need it to return the control (an input sequence) that produced the
-  state, and need the edge check to receive that control.
+  state, and need the edge check to receive that control. This crate's `Steer` trait is
+  the local stand-in.
 - **Node and edge enumeration** on `Rrt`/`RrtStar`, so that callers and tests can audit
   every accepted edge.
 - **Non-ball goal regions.** `GoalRegion` is a metric ball around a center. Robust goals

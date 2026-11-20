@@ -3,7 +3,7 @@
 use polyzonotope::{Containment, Interval, IntervalBox, Polytope, SparsePolyZonotope, Zonotope};
 use sampling_planning::{Euclidean, Validity, ValidityChecker};
 
-use crate::{Obstacles, Reach, SafetyVerdict, reach::check_edge};
+use crate::{Obstacles, Reach, SafetyVerdict, Steer, reach::check_edge};
 
 /// Checks states and motions of `sampling-planning`'s planners with reachable sets.
 ///
@@ -91,7 +91,9 @@ impl<R: Reach<N>, const N: usize> ReachChecker<R, N> {
     }
 }
 
-impl<R: Reach<N>, const N: usize> ValidityChecker<Euclidean<N>> for ReachChecker<R, N> {
+impl<R: Reach<N> + Steer<N, R::Control>, const N: usize> ValidityChecker<Euclidean<N>>
+    for ReachChecker<R, N>
+{
     /// Valid only if the uncertainty box around `state` is proven disjoint from every obstacle.
     fn check_state(&self, state: &[f64; N]) -> Validity {
         let tube = SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&self.tube(state)));

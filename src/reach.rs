@@ -4,11 +4,13 @@ use polyzonotope::SparsePolyZonotope;
 
 use crate::{Obstacles, SafetyVerdict};
 
-/// Steers a system and over-approximates its reachable set along one edge.
+/// Over-approximates the reachable set of a system along one edge.
 ///
 /// A placeholder until `polyzonotope-reach` provides validated reachability; implement it for
 /// your dynamics model. States are points in `N` dimensions; the reachable sets live in the
-/// same space.
+/// same space. Planners also need a [`Steer`](crate::Steer) implementation for
+/// [`Reach::Control`]: implement it on the model, or pair the model with a steering function
+/// through [`WithSteering`](crate::WithSteering).
 ///
 /// # Contract
 ///
@@ -19,11 +21,6 @@ use crate::{Obstacles, SafetyVerdict};
 pub trait Reach<const N: usize> {
     /// What drives the system along one edge, for example a sequence of nominal inputs.
     type Control: Clone;
-
-    /// Picks the control that moves the nominal state `from` toward `toward`.
-    ///
-    /// Returns the control and the nominal end state, which may stop short of `toward`.
-    fn steer(&self, from: &[f64; N], toward: &[f64; N]) -> (Self::Control, [f64; N]);
 
     /// Propagates `initial` under `control`.
     ///

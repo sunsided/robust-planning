@@ -7,7 +7,7 @@
 
 use nalgebra::{DMatrix, DVector};
 use polyzonotope::{Interval, IntervalBox, Reduction, SparsePolyZonotope, Zonotope};
-use robust_planning::Reach;
+use robust_planning::{Reach, Steer};
 
 /// The affine system and the steering parameters of one edge.
 #[derive(Debug, Clone)]
@@ -85,11 +85,9 @@ impl<const N: usize> Affine<N> {
     }
 }
 
-impl<const N: usize> Reach<N> for Affine<N> {
-    /// One nominal input per time step.
-    type Control = Vec<[f64; N]>;
-
-    fn steer(&self, from: &[f64; N], toward: &[f64; N]) -> (Self::Control, [f64; N]) {
+impl<const N: usize> Steer<N, Vec<[f64; N]>> for Affine<N> {
+    /// Follows the straight reference from `from` toward `toward`, one input per time step.
+    fn steer(&self, from: &[f64; N], toward: &[f64; N]) -> (Vec<[f64; N]>, [f64; N]) {
         let reference = self.reference(from, toward);
         let inputs = reference
             .windows(2)
@@ -101,6 +99,11 @@ impl<const N: usize> Reach<N> for Affine<N> {
 
         (inputs, end)
     }
+}
+
+impl<const N: usize> Reach<N> for Affine<N> {
+    /// One nominal input per time step.
+    type Control = Vec<[f64; N]>;
 
     fn propagate(
         &self,

@@ -23,7 +23,7 @@ use sampling_planning::{
     Euclidean, LinearScan, NearestNeighbors, Path, Sampler, StateSpace, rand_core::Rng, unit_f64,
 };
 
-use crate::{Obstacles, Reach, SafetyVerdict, reach::check_edge};
+use crate::{Obstacles, Reach, SafetyVerdict, Steer, reach::check_edge};
 
 /// Everything [`RobustRrt`] needs to know about the world.
 #[derive(Debug, Clone)]
@@ -117,7 +117,9 @@ pub struct RobustRrt<R: Reach<N>, Sa, const N: usize> {
     cover: Vec<SparsePolyZonotope>,
 }
 
-impl<R: Reach<N>, Sa: Sampler<[f64; N]>, const N: usize> RobustRrt<R, Sa, N> {
+impl<R: Reach<N> + Steer<N, R::Control>, Sa: Sampler<[f64; N]>, const N: usize>
+    RobustRrt<R, Sa, N>
+{
     /// Checks the start set and plants the root.
     ///
     /// # Errors

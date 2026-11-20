@@ -2,6 +2,7 @@
 
 mod affine;
 mod simulate;
+mod steering;
 mod unknown;
 mod world;
 

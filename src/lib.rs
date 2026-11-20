@@ -10,6 +10,10 @@
 //!
 //! - [`Reach`]: propagates a reachable set along one edge under one control. The crate defines
 //!   the trait; implementations come from the user (and later from `polyzonotope-reach`).
+//! - [`Steer`]: picks the control of one edge. Implement it on the model, or pair a model
+//!   with a steering function through [`WithSteering`]; `sampling-planning`'s
+//!   [`StraightLine`](sampling_planning::StraightLine) steers models whose control is a
+//!   setpoint.
 //! - [`Obstacles`]: polytope obstacles, checked against reachable sets with optional
 //!   refinement by splitting.
 //! - [`ReachChecker`]: a [`sampling_planning::ValidityChecker`] that runs a [`Reach`] model
@@ -35,12 +39,14 @@ mod checker;
 mod obstacles;
 mod reach;
 pub mod robust_rrt;
+mod steer;
 mod verdict;
 
 pub use checker::ReachChecker;
 pub use obstacles::Obstacles;
 pub use reach::Reach;
 pub use robust_rrt::RobustRrt;
+pub use steer::{Steer, WithSteering};
 pub use verdict::SafetyVerdict;
 
 pub use polyzonotope;
