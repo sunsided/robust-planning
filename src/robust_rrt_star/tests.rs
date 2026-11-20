@@ -219,6 +219,18 @@ fn an_unproven_edge_to_the_new_parent_rejects_the_rewire() {
 }
 
 #[test]
+fn steering_that_stops_short_rejects_the_rewire() {
+    let (mut planner, tree) = hand_built(Vec::new(), &far_goal());
+    // p -> v is about 0.354 long; this steering stops after 0.1.
+    planner.problem.reach.steering = StraightLine::new(0.1);
+
+    assert_eq!(
+        rewire(&mut planner, tree.v, tree.p, 64),
+        Err(Rejection::NotReached)
+    );
+}
+
+#[test]
 fn a_subtree_over_the_budget_is_skipped() {
     let (mut planner, tree) = hand_built(Vec::new(), &far_goal());
 

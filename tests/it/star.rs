@@ -29,6 +29,16 @@ fn grown_slalom(seed: u64) -> (StarPlanner, Vec<f64>) {
     }
 
     assert!(!costs.is_empty(), "seed {seed}: the slalom is solvable");
+    #[expect(
+        clippy::float_cmp,
+        reason = "a zero-length edge repeats the state exactly"
+    )]
+    let repeats = planner
+        .nodes()
+        .iter()
+        .skip(1)
+        .any(|node| node.nominal == planner.nodes()[node.parent.expect("non-root")].nominal);
+    assert!(!repeats, "seed {seed}: a zero-length edge was added");
     assert!(
         planner.stats().rewires > 0,
         "seed {seed}: no rewire committed"

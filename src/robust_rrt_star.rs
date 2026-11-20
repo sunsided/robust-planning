@@ -395,7 +395,10 @@ where
     }
 
     /// Steers the nearest node toward `target`. Returns the edge and its nominal end state if
-    /// the edge is proven safe.
+    /// the edge moves and is proven safe.
+    ///
+    /// A zero-length edge is skipped, as in [`ReachSearch`](crate::ReachSearch): once a node
+    /// sits at the goal center, every goal-biased draw would otherwise add a duplicate there.
     fn extend(&mut self, target: &[f64; N]) -> Option<(Edge<R::Control>, [f64; N])> {
         let parent = self
             .nn
@@ -405,6 +408,12 @@ where
             .problem
             .reach
             .steer(&self.nodes[parent].nominal, target);
+        let length = Euclidean::<N>.distance(&self.nodes[parent].nominal, &nominal);
+
+        if length.is_nan() || length <= 0.0 {
+            return None;
+        }
+
         let set = prove(
             &self.problem,
             &mut self.cover,
