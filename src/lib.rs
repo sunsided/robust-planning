@@ -26,6 +26,8 @@
 //! - [`ReachChecker`]: a [`sampling_planning::ValidityChecker`] that runs a [`Reach`] model
 //!   along each motion, so `sampling-planning`'s planners only accept proven-safe edges.
 //! - [`RobustRrt`]: an RRT whose nodes carry the reachable set they are reached with.
+//! - [`ReachSearch`]: A* over reachable-set nodes along a fixed set of motion primitives,
+//!   expanding only proven-safe edges, with deduplication on a lattice of nominal states.
 //!
 //! ## The `sound` feature
 //!
@@ -44,17 +46,21 @@
 
 mod checker;
 mod goal;
+mod node;
 mod obstacles;
 mod reach;
 pub mod robust_rrt;
+pub mod search;
 mod steer;
 mod verdict;
 
 pub use checker::ReachChecker;
 pub use goal::{Goal, PolytopeGoal};
+pub use node::Node;
 pub use obstacles::Obstacles;
 pub use reach::{Reach, check_edge};
 pub use robust_rrt::RobustRrt;
+pub use search::ReachSearch;
 pub use steer::{Steer, WithSteering};
 pub use verdict::{SafetyVerdict, Witness};
 

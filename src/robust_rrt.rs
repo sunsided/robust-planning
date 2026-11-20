@@ -20,10 +20,10 @@ use core::fmt;
 
 use polyzonotope::{Containment, SparsePolyZonotope};
 use sampling_planning::{
-    Euclidean, LinearScan, NearestNeighbors, Path, Sampler, StateSpace, rand_core::Rng, unit_f64,
+    Euclidean, LinearScan, NearestNeighbors, Path, Sampler, rand_core::Rng, unit_f64,
 };
 
-use crate::{Goal, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge};
+use crate::{Goal, Node, Obstacles, PolytopeGoal, Reach, SafetyVerdict, Steer, check_edge, node};
 
 /// Everything [`RobustRrt`] needs to know about the world.
 ///
@@ -58,19 +58,6 @@ impl Default for Config {
     fn default() -> Self {
         Self { goal_bias: 0.1 }
     }
-}
-
-/// A tree node.
-#[derive(Debug, Clone)]
-pub struct Node<C, const N: usize> {
-    /// The nominal state the node's control drives toward.
-    pub nominal: [f64; N],
-    /// Every state the system can be in at this node.
-    pub set: SparsePolyZonotope,
-    /// The parent node id; `None` only for the root.
-    pub parent: Option<usize>,
-    /// The control from the parent to this node; `None` only for the root.
-    pub control: Option<C>,
 }
 
 /// Why a [`RobustRrt`] could not be created.
@@ -235,16 +222,7 @@ where
     /// Panics if `node` is not a node id.
     #[must_use]
     pub fn branch(&self, node: usize) -> Vec<usize> {
-        let mut ids = vec![node];
-        let mut cursor = node;
-
-        while let Some(parent) = self.nodes[cursor].parent {
-            ids.push(parent);
-            cursor = parent;
-        }
-
-        ids.reverse();
-        ids
+        node::branch(&self.nodes, node)
     }
 
     /// The nominal path to the goal node, or `None` if the goal was not reached yet.
@@ -252,17 +230,7 @@ where
     /// The cost is the Euclidean length of the nominal path.
     #[must_use]
     pub fn path(&self) -> Option<Path<[f64; N]>> {
-        let states: Vec<[f64; N]> = self
-            .branch(self.goal_node?)
-            .into_iter()
-            .map(|id| self.nodes[id].nominal)
-            .collect();
-        let cost = states
-            .windows(2)
-            .map(|pair| Euclidean::<N>.distance(&pair[0], &pair[1]))
-            .sum();
-
-        Some(Path { states, cost })
+        Some(node::nominal_path(&self.nodes, self.goal_node?))
     }
 
     /// Draws the goal center with the configured probability, otherwise a sampler state.

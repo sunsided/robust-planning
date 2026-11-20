@@ -2,6 +2,7 @@
 
 mod affine;
 mod goal;
+mod search;
 mod simulate;
 mod steering;
 mod unknown;
@@ -75,7 +76,13 @@ fn monte_carlo_trajectories_never_hit_obstacles() {
 
         for node in targets {
             for _ in 0..30 {
-                simulate::trajectory(&planner, &obstacles, node, &mut rng);
+                simulate::trajectory(
+                    &planner.problem().reach,
+                    planner.nodes(),
+                    &obstacles,
+                    node,
+                    &mut rng,
+                );
             }
         }
     }

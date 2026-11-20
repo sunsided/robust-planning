@@ -5,26 +5,30 @@ use polyzonotope::{IntervalBox, Polytope};
 use rand_pcg::Pcg64Mcg;
 use sampling_planning::unit_f64;
 
-use crate::{
-    affine::Affine,
-    world::{Planner, hits},
-};
+use robust_planning::Node;
+
+use crate::{affine::Affine, world::hits};
 
 /// Points checked on each segment between two time steps, ends excluded.
 const SEGMENT_POINTS: u32 = 8;
 
-/// Simulates one random trajectory along the branch from the root to `node`.
+/// Simulates one random trajectory of `model` along the branch from the root to `node` of a
+/// planner tree.
 ///
 /// Draws the start state from the root set's interval hull (the start box) and an input error
 /// and a disturbance per step, a quarter of them at a corner of their box. Panics if a state
 /// or a point between two states lies in an obstacle, or if a state at a node lies outside
 /// that node's interval hull.
-pub fn trajectory(planner: &Planner, obstacles: &[Polytope], node: usize, rng: &mut Pcg64Mcg) {
-    let nodes = planner.nodes();
-    let model = &planner.problem().reach;
+pub fn trajectory(
+    model: &Affine<2>,
+    nodes: &[Node<Vec<[f64; 2]>, 2>],
+    obstacles: &[Polytope],
+    node: usize,
+    rng: &mut Pcg64Mcg,
+) {
     let mut x = point_in(&nodes[0].set.interval_hull(), rng);
 
-    for id in planner.branch(node).into_iter().skip(1) {
+    for id in branch(nodes, node) {
         let inputs = nodes[id]
             .control
             .as_ref()
@@ -44,6 +48,15 @@ pub fn trajectory(planner: &Planner, obstacles: &[Polytope], node: usize, rng: &
             "state {x:?} escaped the set of node {id}"
         );
     }
+}
+
+/// The node ids from the root's first child to `node`, inclusive.
+fn branch(nodes: &[Node<Vec<[f64; 2]>, 2>], node: usize) -> Vec<usize> {
+    let mut ids: Vec<usize> = core::iter::successors(Some(node), |&id| nodes[id].parent).collect();
+    ids.pop();
+    ids.reverse();
+
+    ids
 }
 
 /// One step of `x' = A x + B (u + e) + w` with random `e` and `w`.
