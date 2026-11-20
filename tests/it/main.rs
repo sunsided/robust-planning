@@ -24,6 +24,11 @@ fn solved_slalom(seed: u64) -> world::Planner {
     let path = planner.solve(ITERATIONS, &mut Pcg64Mcg::seed_from_u64(seed));
 
     assert!(path.is_some(), "seed {seed}: the slalom is solvable");
+    assert!(
+        planner.nodes().len() > 20,
+        "seed {seed}: the tree is trivial"
+    );
+
     planner
 }
 
@@ -35,11 +40,6 @@ fn every_accepted_edge_is_proven_disjoint() {
         let planner = solved_slalom(seed);
         let reach = &planner.problem().reach;
         let mut cover = Vec::new();
-
-        assert!(
-            planner.nodes().len() > 20,
-            "seed {seed}: the tree is trivial"
-        );
 
         for node in &planner.nodes()[1..] {
             let parent = &planner.nodes()[node.parent.expect("non-root")];

@@ -12,11 +12,11 @@ keywords = ["planning", "reachability", "robotics", "safety", "rrt"]
 categories = ["science::robotics", "algorithms"]
 
 [dependencies]
-nalgebra = { version = "0.35", default-features = false, features = ["std"] }
 polyzonotope = "0.2"
 sampling-planning = { path = "../sampling-planning", version = "0.0.0" }
 
 [dev-dependencies]
+nalgebra = "0.35"
 rand_pcg = "0.10.2"
 
 [features]

@@ -120,14 +120,12 @@ impl<const N: usize> Reach<N> for Affine<N> {
     }
 }
 
-/// The box `center ± half_widths` as a zonotope.
+/// The box `center ± half_widths` as a zonotope: center `center`, one axis-aligned generator
+/// per half width. Built without arithmetic, so no rounding narrows it.
 fn centered_box<const N: usize>(center: &[f64; N], half_widths: &[f64; N]) -> Zonotope {
-    let intervals = center
-        .iter()
-        .zip(half_widths)
-        .map(|(c, r)| Interval::new(c - r, c + r));
+    let generators = DMatrix::from_diagonal(&DVector::from_column_slice(half_widths));
 
-    Zonotope::from_box(&IntervalBox(intervals.collect()))
+    Zonotope::new(DVector::from_column_slice(center), generators)
 }
 
 /// The smallest axis-aligned box around both sets, from their outward-rounded interval hulls.

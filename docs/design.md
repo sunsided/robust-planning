@@ -97,7 +97,8 @@ polyzonotope computes in plain `f64`.
   floating-point rounding". Docs, examples and reports must say which mode produced a
   result.
 - All set arithmetic goes through polyzonotope operations, so that `sound` covers it. The
-  test model builds `B (u ⊕ E)` as a `linear_map` of a box, not as an `f64` product `B·u`.
+  test model builds `B (u ⊕ E)` as a `linear_map` of the zonotope with center `u` and
+  generators `E`, not as an `f64` product `B·u`.
   It builds hull boxes from outward-rounded `interval_hull`s and only takes `min` and `max`
   of them, which is exact.
 - Nominal states and controls are plain `f64`. They label nodes and choose inputs. Safety
@@ -222,9 +223,9 @@ Nothing here changes another repo. These are requests to the owning sessions.
   motion is `Valid`.
 - **Reproducibility:** the same seed gives the same tree.
 - **Narrow passage:** a wall with a 0.2 gap. A point RRT gets through. `RobustRrt`
-  (settled set width 0.3) and `ReachChecker` (tube width 0.4) get no node past the wall
-  and find no path. The same planners pass a 1.0 gap, so the rejection is due to the set
-  width.
+  (settled set width 0.3) gets no node past the wall and finds no path. `sampling-planning`'s
+  `Rrt` with `ReachChecker` (tube width 0.4) finds no path; `Rrt` exposes no nodes to check
+  further. The same planners pass a 1.0 gap, so the rejection is due to the set width.
 - All gates run with and without `sound`, so outward rounding must not break any test
   margin. Case counts stay modest.
 
