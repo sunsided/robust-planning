@@ -1,0 +1,7 @@
+# actionlint 1.7.12 does not know GitHub's `$/` self-repository syntax for `uses:` yet
+# (rhysd/actionlint#732). zizmor's self-repository audit asks for it, and it resolves the local
+# checkout-siblings action without a prior checkout. Drop this once actionlint supports it.
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'specifying action "\$/\.github/actions/[^"]+" in invalid format because ref is missing'
