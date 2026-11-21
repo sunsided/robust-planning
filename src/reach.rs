@@ -6,8 +6,8 @@ use crate::{Obstacles, SafetyVerdict, Witness};
 
 /// Over-approximates the reachable set of a system along one edge.
 ///
-/// A placeholder until `polyzonotope-reach` provides validated reachability; implement it for
-/// your dynamics model. States are points in `N` dimensions; the reachable sets live in the
+/// Implement it for your dynamics model, for example on top of `polyzonotope-reach`, whose
+/// time-interval sets are cover sets and whose time-point sets are end sets. States are points in `N` dimensions; the reachable sets live in the
 /// same space. Planners also need a [`Steer`](crate::Steer) implementation for
 /// [`Reach::Control`]: implement it on the model, or pair the model with a steering function
 /// through [`WithSteering`](crate::WithSteering).
@@ -47,7 +47,7 @@ pub trait Reach<const N: usize> {
     /// actually reach on the edge, and proven to lie in `obstacle`. Cover sets are
     /// over-approximations, so a point of `set` is in general *not* such a state; only a
     /// model whose cover set is exact or under-approximated can certify one. polyzonotope
-    /// 0.2 has no certified witness, so for now this is for models that prove it themselves.
+    /// has no certified witness, so this is for models that prove it themselves.
     ///
     /// The returned point is sanity-checked in plain `f64` (inside `obstacle` and inside the
     /// interval hull of `set`) and dropped if it fails, which keeps the verdict
