@@ -1,5 +1,13 @@
 # robust-planning
 
+[![crates.io](https://img.shields.io/crates/v/robust-planning.svg)](https://crates.io/crates/robust-planning)
+[![docs.rs](https://img.shields.io/docsrs/robust-planning)](https://docs.rs/robust-planning)
+[![CI](https://github.com/sunsided/robust-planning/actions/workflows/ci.yml/badge.svg)](https://github.com/sunsided/robust-planning/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/sunsided/robust-planning/graph/badge.svg)](https://codecov.io/gh/sunsided/robust-planning)
+[![MSRV](https://img.shields.io/crates/msrv/robust-planning)](https://crates.io/crates/robust-planning)
+[![License](https://img.shields.io/crates/l/robust-planning)](https://github.com/sunsided/robust-planning#license)
+[![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
+
 Planning over reachable sets under uncertainty: Robust-RRT and reachability-guided search.
 
 ## Scope
@@ -22,8 +30,9 @@ Planning over reachable sets under uncertainty: Robust-RRT and reachability-guid
 
 Every check is conservative: a check that cannot prove safety returns `Indeterminate`, never
 `Safe`, and planners reject it. Proofs are rigorous only with the `sound` feature, which
-needs x86-64 Haswell or newer (see `.cargo/config.toml`) or AArch64. See
-[docs/design.md](docs/design.md).
+needs x86-64 Haswell or newer (see
+[`.cargo/config.toml`](https://github.com/sunsided/robust-planning/blob/main/.cargo/config.toml)) or AArch64. See
+[docs/design.md](https://github.com/sunsided/robust-planning/blob/main/docs/design.md).
 
 ## Status
 
@@ -31,11 +40,28 @@ Pre-release, version 0.0.0. Robust-RRT, Robust RRT*, the reachability-guided sea
 `sampling-planning` adapter work. Run `cargo run --example robust_rrt_2d`,
 `cargo bench --bench search` and `cargo bench --bench robust_rrt_star`. The API will change.
 
+## Minimum supported Rust version
+
+Rust 1.89 (edition 2024). The MSRV applies to the library; tests and benchmarks may need a
+newer toolchain. It may be raised in a minor release when a dependency or a language
+feature calls for it.
+
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/sunsided/robust-planning/blob/main/CONTRIBUTING.md).
+
 ## License
 
 Licensed under either of
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](https://github.com/sunsided/robust-planning/blob/main/LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](https://github.com/sunsided/robust-planning/blob/main/LICENSE-MIT))
 
 at your option.
+
+The example in [`examples/`](https://github.com/sunsided/robust-planning/tree/main/examples) is public domain
+([CC0-1.0](https://github.com/sunsided/robust-planning/blob/main/LICENSES/CC0-1.0.txt)), so you can copy it into anything.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion
+in this work by you, as defined in the Apache-2.0 license, shall be dual licensed as above,
+without any additional terms or conditions.

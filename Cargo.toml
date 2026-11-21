@@ -10,6 +10,19 @@ repository = "https://github.com/sunsided/robust-planning"
 readme = "README.md"
 keywords = ["planning", "reachability", "robotics", "safety", "rrt"]
 categories = ["science::robotics", "algorithms"]
+# Repository tooling stays out of the published crate.
+exclude = [
+    ".github/",
+    "scripts/",
+    ".pre-commit-config.yaml",
+    "Taskfile.dist.yaml",
+    "_typos.toml",
+    "clippy.toml",
+    "codecov.yml",
+    "deny.toml",
+    "release-plz.toml",
+    "rustfmt.toml",
+]
 
 [dependencies]
 # The version polyzonotope builds on; needed to construct facet normals for polytopes.
