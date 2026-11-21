@@ -41,7 +41,7 @@ a `Safe` verdict becomes a proof rather than "safe up to floating-point rounding
 
 ```toml
 [dependencies]
-robust-planning = "0.1"
+robust-planning = "0.2"
 ```
 
 Enable the `sound` feature for rigorous verdicts. It needs x86-64 Haswell or newer (see
