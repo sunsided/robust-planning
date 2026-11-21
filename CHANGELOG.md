@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/sunsided/robust-planning/compare/v0.1.0...v0.2.0) - 2026-11-21
+
+### Changed
+
+- Set the version to 0.2.0 for the fallible Reach::propagate
+- Provide Reach models on polyzonotope-reach behind a reach feature
+- Let Reach::propagate report edges it cannot enclose
+
 ## [0.1.0](https://github.com/sunsided/robust-planning/releases/tag/v0.1.0) - 2026-11-21
 
 ### Added
