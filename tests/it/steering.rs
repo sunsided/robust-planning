@@ -62,11 +62,12 @@ fn edges_from_a_steering_into_a_wall_are_still_proven_disjoint() {
         let parent = &planner.nodes()[node.parent.expect("non-root")];
 
         cover.clear();
-        reach.propagate(
+        let end = reach.propagate(
             &parent.set,
             node.control.as_ref().expect("non-root"),
             &mut cover,
         );
+        assert!(end.is_some());
 
         for set in &cover {
             for obstacle in &obstacles {

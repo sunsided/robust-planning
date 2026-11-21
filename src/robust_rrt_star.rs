@@ -73,7 +73,7 @@
 //!         initial: &SparsePolyZonotope,
 //!         end: &[f64; 2],
 //!         cover: &mut Vec<SparsePolyZonotope>,
-//!     ) -> SparsePolyZonotope {
+//!     ) -> Option<SparsePolyZonotope> {
 //!         let from = initial.interval_hull();
 //!         let hull = (0..2).map(|i| {
 //!             Interval::new(from.0[i].lo.min(end[i] - 0.1), from.0[i].hi.max(end[i] + 0.1))
@@ -82,7 +82,7 @@
 //!         let set = |b: IntervalBox| SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&b));
 //!
 //!         cover.push(set(IntervalBox(hull.collect())));
-//!         set(IntervalBox(end_box.collect()))
+//!         Some(set(IntervalBox(end_box.collect())))
 //!     }
 //! }
 //!
@@ -815,7 +815,7 @@ fn prove<R: Reach<N>, Sa, const N: usize, G>(
 ) -> Option<SparsePolyZonotope> {
     let (verdict, end) = check_edge(&problem.reach, &problem.obstacles, initial, control, cover);
 
-    verdict.is_safe().then_some(end)
+    end.filter(|_| verdict.is_safe())
 }
 
 /// Checks the ranges of every [`Config`] field.

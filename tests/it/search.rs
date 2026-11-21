@@ -82,11 +82,12 @@ fn assert_every_edge_disjoint(search: &Search, obstacles: &[Rect]) {
         let parent = &search.nodes()[node.parent.expect("non-root")];
 
         cover.clear();
-        search.problem().reach.propagate(
+        let end = search.problem().reach.propagate(
             &parent.set,
             node.control.as_ref().expect("non-root"),
             &mut cover,
         );
+        assert!(end.is_some());
         assert_ne!(cover.len(), 0);
 
         for set in &cover {
@@ -506,11 +507,15 @@ fn bounded_sets_stay_proven_inside_the_workspace() {
     for node in &whole.nodes()[1..] {
         let parent = &whole.nodes()[node.parent.expect("non-root")];
         cover.clear();
-        let end = whole.problem().reach.propagate(
-            &parent.set,
-            node.control.as_ref().expect("non-root"),
-            &mut cover,
-        );
+        let end = whole
+            .problem()
+            .reach
+            .propagate(
+                &parent.set,
+                node.control.as_ref().expect("non-root"),
+                &mut cover,
+            )
+            .expect("every accepted edge has an end set");
 
         for set in cover.iter().chain([&end]) {
             assert_eq!(set.containment(&workspace, SPLITS), Containment::Inside);

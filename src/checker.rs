@@ -120,10 +120,9 @@ impl<R: Reach<N> + Steer<N, R::Control>, const N: usize> ValidityChecker<Euclide
         let mut cover = Vec::new();
         let (verdict, end_set) =
             check_edge(&self.reach, &self.obstacles, &initial, &control, &mut cover);
-
-        if verdict != SafetyVerdict::Safe {
+        let Some(end_set) = end_set.filter(|_| verdict == SafetyVerdict::Safe) else {
             return verdict.into();
-        }
+        };
 
         self.returns_into_tube(&end_set, to)
     }

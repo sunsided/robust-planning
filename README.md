@@ -41,11 +41,12 @@ a `Safe` verdict becomes a proof rather than "safe up to floating-point rounding
 
 ```toml
 [dependencies]
-robust-planning = "0.1"
+robust-planning = "0.2"
 ```
 
 Enable the `sound` feature for rigorous verdicts. It needs x86-64 Haswell or newer (see
 [`.cargo/config.toml`](https://github.com/sunsided/robust-planning/blob/main/.cargo/config.toml)) or AArch64.
+Enable `reach` for the ready-made dynamics models on polyzonotope-reach (`models`).
 
 ## Features
 
@@ -64,10 +65,12 @@ Enable the `sound` feature for rigorous verdicts. It needs x86-64 Haswell or new
   certified collision witnesses (`Reach::certify_collision`).
 - Polytope obstacles checked against reachable sets, with optional refinement by splitting
   (`Obstacles`).
+- Dynamics models on polyzonotope-reach, behind the `reach` feature: validated
+  continuous-time reachable sets of linear (`models::Linear`) and nonlinear
+  (`models::Nonlinear`) systems. Their cover sets enclose the motion between time steps.
 
 Not yet implemented: safety-constrained trajectory planning (optimizing nominal controls under
-proven set constraints), and a `Reach` implementation from polyzonotope-reach; the tests and
-the example use their own affine model.
+proven set constraints).
 
 ## Usage
 

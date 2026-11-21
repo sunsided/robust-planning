@@ -156,17 +156,16 @@ where
             .expect("the tree always holds the root");
         let parent = &self.nodes[nearest];
         let (control, nominal) = self.problem.reach.steer(&parent.nominal, &target);
-        let (verdict, set) = check_edge(
+        let (verdict, end) = check_edge(
             &self.problem.reach,
             &self.problem.obstacles,
             &parent.set,
             &control,
             &mut self.cover,
         );
-
-        if !verdict.is_safe() {
+        let Some(set) = end.filter(|_| verdict.is_safe()) else {
             return false;
-        }
+        };
 
         self.add(Node {
             nominal,

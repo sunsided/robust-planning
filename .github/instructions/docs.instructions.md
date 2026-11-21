@@ -9,8 +9,8 @@ applyTo: "**/*.md,docs/**"
   Only in-page anchors may be relative.
 - Mermaid diagrams (```` ```mermaid ````) must be valid (`task lint:mermaid` renders them)
   and must match the code. Flag diagrams that the change makes stale. Keep each diagram under
-  about 15 nodes. The module docs of `robust_rrt`, `robust_rrt_star`, `search` and
-  `containment` carry diagrams.
+  about 15 nodes. The module docs of `robust_rrt`, `robust_rrt_star`, `search`,
+  `containment` and `models` carry diagrams.
 - Code blocks are tagged with their language. The README has no Rust blocks and is not
   doctested; if it gains a Rust example, include it through a private `#[cfg(doctest)]`
   module in `src/lib.rs` so it compiles. Doctests live on the items (for example `Cost`);

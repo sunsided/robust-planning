@@ -61,9 +61,9 @@ impl<const N: usize> Steer<N, [f64; N]> for StraightLine {
 ///         initial: &SparsePolyZonotope,
 ///         _: &[f64; 2],
 ///         cover: &mut Vec<SparsePolyZonotope>,
-///     ) -> SparsePolyZonotope {
+///     ) -> Option<SparsePolyZonotope> {
 ///         cover.push(initial.clone());
-///         initial.clone()
+///         Some(initial.clone())
 ///     }
 /// }
 ///
@@ -98,7 +98,7 @@ impl<R: Reach<N>, S, const N: usize> Reach<N> for WithSteering<R, S> {
         initial: &SparsePolyZonotope,
         control: &Self::Control,
         cover: &mut Vec<SparsePolyZonotope>,
-    ) -> SparsePolyZonotope {
+    ) -> Option<SparsePolyZonotope> {
         self.reach.propagate(initial, control, cover)
     }
 

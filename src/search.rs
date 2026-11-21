@@ -57,7 +57,7 @@
 //!         initial: &SparsePolyZonotope,
 //!         end: &[f64; 2],
 //!         cover: &mut Vec<SparsePolyZonotope>,
-//!     ) -> SparsePolyZonotope {
+//!     ) -> Option<SparsePolyZonotope> {
 //!         let from = initial.interval_hull();
 //!         let hull = (0..2).map(|i| {
 //!             Interval::new(from.0[i].lo.min(end[i] - 0.1), from.0[i].hi.max(end[i] + 0.1))
@@ -66,7 +66,7 @@
 //!         let set = |b: IntervalBox| SparsePolyZonotope::from_zonotope(&Zonotope::from_box(&b));
 //!
 //!         cover.push(set(IntervalBox(hull.collect())));
-//!         set(IntervalBox(end_box.collect()))
+//!         Some(set(IntervalBox(end_box.collect())))
 //!     }
 //! }
 //!
@@ -576,15 +576,16 @@ where
             return None;
         }
 
-        let (verdict, set) = check_edge(
+        let (verdict, end) = check_edge(
             &self.problem.reach,
             &self.problem.obstacles,
             &parent.set,
             &control,
             &mut self.cover,
         );
+        let set = end.filter(|_| verdict.is_safe())?;
 
-        if !verdict.is_safe() || !self.sets_in_workspace(&set) {
+        if !self.sets_in_workspace(&set) {
             return None;
         }
 
@@ -848,9 +849,9 @@ mod tests {
             _: &SparsePolyZonotope,
             end: &[f64; 2],
             cover: &mut Vec<SparsePolyZonotope>,
-        ) -> SparsePolyZonotope {
+        ) -> Option<SparsePolyZonotope> {
             cover.push(square(*end, 0.1));
-            square(*end, 0.1)
+            Some(square(*end, 0.1))
         }
     }
 
