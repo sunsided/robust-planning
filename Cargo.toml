@@ -31,6 +31,12 @@ harness = false
 name = "robust_rrt_star"
 harness = false
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--html-in-header", "docs/mermaid.html"]
+# all-features enables `sound`, whose inari dependency needs AVX2 and FMA on x86-64.
+rustc-args = ["-C", "target-cpu=haswell"]
+
 [features]
 # Outward rounding in polyzonotope. Safety verdicts are rigorous only with this feature.
 # Needs x86-64 Haswell or newer (see .cargo/config.toml) or AArch64.
