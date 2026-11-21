@@ -13,7 +13,8 @@ applyTo: "**/*.md,docs/**"
   `containment` carry diagrams.
 - Code blocks are tagged with their language. The README has no Rust blocks and is not
   doctested; if it gains a Rust example, include it through a private `#[cfg(doctest)]`
-  module in `src/lib.rs` so it compiles. The crate-level example lives in `src/lib.rs`.
+  module in `src/lib.rs` so it compiles. Doctests live on the items (for example `Cost`);
+  `src/lib.rs` has no crate-level example yet.
 - `docs/design.md` records the design and milestones. Update it when a planner, trait or
   check is added or changes shape, and keep the README "Scope" list in step.
 - Keep badges, the License section and the MSRV statement consistent with `Cargo.toml`.

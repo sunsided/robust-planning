@@ -39,6 +39,8 @@ jobs:
       - uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
           manifest_path: robust-planning/Cargo.toml
+          # release-plz reads its config from the working directory, one level above the crate.
+          config: robust-planning/release-plz.toml
           command: release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -72,6 +74,8 @@ jobs:
       - uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
           manifest_path: robust-planning/Cargo.toml
+          # release-plz reads its config from the working directory, one level above the crate.
+          config: robust-planning/release-plz.toml
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
