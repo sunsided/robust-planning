@@ -2,6 +2,8 @@
 
 mod affine;
 mod goal;
+#[cfg(feature = "reach")]
+mod models;
 mod properties;
 mod search;
 mod simulate;

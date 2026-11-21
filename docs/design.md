@@ -63,10 +63,30 @@ It uses `linear_map`, `minkowski_sum` and Girard `reduce` per step. Between time
 system is assumed to move in a straight line. The cover set of step `k` is then the box
 around `X_k ∪ X_{k+1}`: it contains every segment from a point of `X_k` to a point of
 `X_{k+1}`, so a step longer than a thin wall cannot jump over it. This model lives only in
-`tests/it/affine.rs` and is shared with the example through `#[path]`. Users implement
-`Reach` for their own dynamics. `polyzonotope-reach` (a member of the polyzonotope workspace)
-computes validated time-point and time-interval sets, including for nonlinear dynamics; the
-`Reach` trait is the seam a model built on it plugs into.
+`tests/it/affine.rs` and is shared with the `robust_rrt_2d` example through `#[path]`.
+
+### Models on polyzonotope-reach: `models`
+
+Behind the `reach` feature, `models::Linear` (`x' = A x + B u`, on `LinearReach`) and
+`models::Nonlinear` (`x' = f(x, u)` for any `Dynamics`, on `NonlinearReach`) implement
+`Reach` with validated continuous-time sets. The control of an edge is one input set `U_k`
+per time step: the system may follow any integrable input signal with values in `U_k`, so
+nominal input, input error and disturbance (as extra input columns) all go into it. Each
+step returns a time-interval set, which becomes cover set `k`, and a time-point set, which
+starts step `k + 1`; the last one is the end set. The time-interval set encloses the
+continuous motion, so no straight-line assumption between time steps is needed.
+
+- `Linear` always proves its steps and reduces the carried set to a configured order
+  (Girard) after each one.
+- `Nonlinear` linearizes or polynomializes `f` per step and encloses the abstraction error.
+  A step it cannot prove makes `propagate` return `None`, so the edge is `Indeterminate`.
+- Sets are stepped whole. polyzonotope-reach can split a set whose step fails and merge the
+  pieces again, but a split set has no single end set to hand to the next edge, so the
+  splitting, merging and adaptive-step settings do not apply.
+
+Steering stays with the user, paired through `WithSteering`. The `robust_rrt_current`
+example steers a robot through a current `y' = u₁ + k x²` that the steering compensates
+along a straight nominal path.
 
 ## Safety verdicts
 
@@ -74,7 +94,9 @@ computes validated time-point and time-interval sets, including for nonlinear dy
 
 - `Safe`: the reachable set provably avoids every unsafe region.
 - `Unsafe`: some *actually reachable* state provably lies in an unsafe region.
-- `Indeterminate`: neither has been proven, so refine or reject.
+- `Indeterminate`: neither has been proven, so refine or reject. Also the verdict of an
+  edge the model could not enclose (`propagate` returned `None`) or reported no cover sets
+  for.
 
 ### From polyzonotope
 
@@ -131,8 +153,8 @@ rejection.
 
 ## The `sound` feature
 
-`sound` forwards to `polyzonotope/sound`, which rounds outward with inari. Without it,
-polyzonotope computes in plain `f64`.
+`sound` forwards to `polyzonotope/sound`, which rounds outward with inari, and, with
+`reach`, to `polyzonotope-reach/sound`. Without it, polyzonotope computes in plain `f64`.
 
 - Claims of rigor are made **only with `sound`**. Without it, `Safe` means "safe up to
   floating-point rounding". Docs, examples and reports must say which mode produced a
@@ -490,18 +512,22 @@ What the dependencies would need to provide for this crate to drop its local sta
 - **Under-approximations**, or an exactness flag, for the same reason.
 - **NaN facets in `containment`.** A facet with a NaN offset never refutes containment, so
   a set far outside it is reported `Inside`. `PolytopeGoal` guards against this locally.
-- **Convex hull enclosures** of two consecutive sets. The test model covers inter-sample
-  motion with an axis-aligned box, which is coarse for rotated sets.
+- **Convex hull or union enclosures** of several sets in one set. `models::Nonlinear` could
+  then let polyzonotope-reach split a set whose step fails and still hand one end set to the
+  next edge.
 
 **polyzonotope-reach**
 
-- Computes validated time-point and time-interval reachable sets for linear and nonlinear
-  dynamics. Each `Step` maps onto `Reach::propagate`: `time_interval` is a cover set,
-  `time_point` the end set. A `Reach` model on it needs a control type and a way to turn
-  a control into the input set `U`.
+- Nothing open: `models` uses its one-step API as it is.
 
 ## Testing strategy
 
+- **Models on polyzonotope-reach:** RK4 trajectories with start states, and inputs per
+  substep, drawn from the sets (corners included) must meet every cover set of their step
+  and the end set; a model that covered with time-point sets fails this. The integrator
+  `x' = u` ends in a set that contains the affine stand-in's for the same inputs. An edge
+  through an obstacle is never `Safe`, and a refused nonlinear step leaves the edge
+  `Indeterminate` without an end set.
 - **Steering, goals and witnesses:** a steering that aims into a wall still yields only
   proven-disjoint edges; `ReachChecker` is `Unknown` when steering stops short; goals that
   answer `Unknown` or `NotInside` are never reached; `PolytopeGoal` rejects NaN facets and
@@ -574,8 +600,7 @@ through polyzonotope's harness; fuzzing of the checker inputs.
 
 ## Not yet implemented
 
-- A `Reach` model on `polyzonotope-reach`, with time-interval sets in place of the box hull,
-  and nonlinear dynamics.
+- Set splitting and adaptive steps in `models::Nonlinear` (see the polyzonotope needs above).
 - Refinement beyond set splitting: time splitting, initial-set bisection, and budget
   escalation.
 - Reusing `sampling-planning` trees once they carry per-node payloads; proven containment

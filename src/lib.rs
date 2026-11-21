@@ -8,8 +8,9 @@
 //!
 //! ## Building blocks
 //!
-//! - [`Reach`]: propagates a reachable set along one edge under one control. The crate defines
-//!   the trait; implementations come from the user.
+//! - [`Reach`]: propagates a reachable set along one edge under one control. Implement it for
+//!   your dynamics, or enable the `reach` feature for the models in `models`, built on
+//!   polyzonotope-reach.
 //!   Its optional [`Reach::certify_collision`] hook lets a model whose sets are exact turn an
 //!   unproven edge into [`SafetyVerdict::Unsafe`] with a [`Witness`]; [`check_edge`] runs
 //!   one edge check.
@@ -51,6 +52,8 @@ mod checker;
 pub mod containment;
 mod cost;
 mod goal;
+#[cfg(feature = "reach")]
+pub mod models;
 mod node;
 mod obstacles;
 mod reach;
@@ -74,4 +77,6 @@ pub use steer::{Steer, WithSteering};
 pub use verdict::{SafetyVerdict, Witness};
 
 pub use polyzonotope;
+#[cfg(feature = "reach")]
+pub use polyzonotope_reach;
 pub use sampling_planning;

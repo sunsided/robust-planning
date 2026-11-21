@@ -1,9 +1,10 @@
 //! A discrete-time affine system `x' = A x + B (u + e) + w` with bounded input error `e` and
 //! disturbance `w`, and its reachable sets `X' = A X ⊕ B (u ⊕ E) ⊕ W`.
 //!
-//! A stand-in for `polyzonotope-reach`, shared by the tests and the example. Between time
-//! steps the system is assumed to move on the straight segment from `x` to `x'`, so the box
-//! around two consecutive sets covers it.
+//! A discrete-time test model, shared by the tests and the `robust_rrt_2d` example; the
+//! continuous-time models live in `robust_planning::models`. Between time steps the system is
+//! assumed to move on the straight segment from `x` to `x'`, so the box around two
+//! consecutive sets covers it.
 
 use nalgebra::{DMatrix, DVector};
 use polyzonotope::{Interval, IntervalBox, Reduction, SparsePolyZonotope, Zonotope};

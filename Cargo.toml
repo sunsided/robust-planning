@@ -28,6 +28,8 @@ exclude = [
 # The version polyzonotope builds on; needed to construct facet normals for polytopes.
 nalgebra = { version = "0.35", default-features = false, features = ["alloc"] }
 polyzonotope = "0.4"
+# 0.1.1 is the first release on polyzonotope 0.4; 0.1.0 would pull a second copy of the set types.
+polyzonotope-reach = { version = "0.1.1", optional = true }
 sampling-planning = "0.1"
 
 [dev-dependencies]
@@ -35,6 +37,10 @@ criterion = { version = "0.8", default-features = false, features = ["cargo_benc
 nalgebra = "0.35"
 proptest = "1.12.0"
 rand_pcg = "0.10.2"
+
+[[example]]
+name = "robust_rrt_current"
+required-features = ["reach"]
 
 [[bench]]
 name = "search"
@@ -53,7 +59,10 @@ rustc-args = ["-C", "target-cpu=haswell"]
 [features]
 # Outward rounding in polyzonotope. Safety verdicts are rigorous only with this feature.
 # Needs x86-64 Haswell or newer (see .cargo/config.toml) or AArch64.
-sound = ["polyzonotope/sound"]
+sound = ["polyzonotope/sound", "polyzonotope-reach?/sound"]
+# Reach models on polyzonotope-reach: validated continuous-time reachable sets of linear and
+# nonlinear dynamics (`models`).
+reach = ["dep:polyzonotope-reach"]
 
 [lints.rust]
 missing_docs = "warn"
