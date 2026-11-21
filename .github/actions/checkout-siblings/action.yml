@@ -1,28 +1,20 @@
-# Cargo needs every `path = "../x"` dependency on disk, even with a `version`. This checks the
-# repository out into $GITHUB_WORKSPACE/robust-planning and the unreleased siblings next to it,
-# so `../sampling-planning` resolves. Jobs call it as `$/.github/actions/checkout-siblings`
-# (self-repository syntax, resolved without a prior checkout) and set
+# Cargo needs every `path = "../x"` dependency on disk, even with a `version`. Every job that
+# runs cargo first checks this repository out into $GITHUB_WORKSPACE/robust-planning (a local
+# action cannot run before the checkout that contains it), then uses this action to check the
+# unreleased siblings out next to it, so `../sampling-planning` resolves. Jobs set
 # `defaults.run.working-directory: robust-planning`.
 # Remove a sibling here once its dependency moves to a crates.io release.
-name: Check out with sibling crates
-description: Checks out robust-planning and the unreleased sibling crates it depends on by path.
+name: Check out sibling crates
+description: Checks out the unreleased sibling crates robust-planning depends on by path.
 
 inputs:
   token:
     description: Token with read access to the private sibling repositories (secrets.SIBLING_REPOS_TOKEN).
     required: true
-  fetch-depth:
-    description: History depth of the robust-planning checkout (0 for all, as release-plz needs).
-    default: "1"
 
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        path: robust-planning
-        fetch-depth: ${{ inputs.fetch-depth }}
-        persist-credentials: false
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         repository: sunsided/sampling-planning

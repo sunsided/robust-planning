@@ -24,13 +24,13 @@ applyTo: ".github/workflows/**,Taskfile.dist.yaml,**/Taskfile.dist.yaml,.pre-com
 - CI jobs: `branch`, `fmt`, `clippy`, `style`, `doc`, `test` (Linux only), `coverage`,
   `deny`, `msrv`, `semver`, `fuzz`, plus `actionlint` and `zizmor` in `actions-lint.yml`.
 - `sampling-planning` is an unreleased path dependency. Every job that builds checks the
-  repository out into `robust-planning/` and the private sibling next to it through
-  `$/.github/actions/checkout-siblings` (token `SIBLING_REPOS_TOKEN`), and sets
+  repository out into `robust-planning/`, then the private sibling next to it through
+  `./robust-planning/.github/actions/checkout-siblings` (token `SIBLING_REPOS_TOKEN`), and sets
   `defaults.run.working-directory: robust-planning`. `uses:` steps that read the crate need
   an explicit path input (manifest path, cache workspace, Codecov working directory).
   Remove the sibling checkout once the dependency moves to a crates.io release.
-- `.github/actionlint.yaml` ignores only actionlint's complaint about the `$/` syntax. Do
-  not widen it.
+- `.github/zizmor.yml` disables only the `self-repository` audit: it asks for the `$/` form,
+  which actionlint rejects. Re-enable it once actionlint accepts `$/`.
 - `cargo fmt` runs without `--all`: `--all` also formats path dependencies and would
   rewrite the sibling checkout.
 - The `sound` feature (inari) needs `-C target-cpu=haswell` on x86-64. `.cargo/config.toml`

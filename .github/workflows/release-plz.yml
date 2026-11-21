@@ -29,10 +29,14 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: read
-      - uses: $/.github/actions/checkout-siblings
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: robust-planning
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./robust-planning/.github/actions/checkout-siblings
         with:
           token: ${{ secrets.SIBLING_REPOS_TOKEN }}
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
@@ -64,10 +68,14 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
-      - uses: $/.github/actions/checkout-siblings
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: robust-planning
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./robust-planning/.github/actions/checkout-siblings
         with:
           token: ${{ secrets.SIBLING_REPOS_TOKEN }}
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
