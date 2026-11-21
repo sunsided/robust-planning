@@ -9,7 +9,7 @@
 //! ## Building blocks
 //!
 //! - [`Reach`]: propagates a reachable set along one edge under one control. The crate defines
-//!   the trait; implementations come from the user (and later from `polyzonotope-reach`).
+//!   the trait; implementations come from the user.
 //!   Its optional [`Reach::certify_collision`] hook lets a model whose sets are exact turn an
 //!   unproven edge into [`SafetyVerdict::Unsafe`] with a [`Witness`]; [`check_edge`] runs
 //!   one edge check.
@@ -42,11 +42,6 @@
 //! Without `sound`, polyzonotope computes in plain `f64`, so [`SafetyVerdict::Safe`] means
 //! "safe up to floating-point rounding". Only with `sound` (outward rounding) is it a proof.
 //! See `docs/design.md`.
-//!
-//! ## Status
-//!
-//! Pre-release. Milestone 1 (edge checks and Robust-RRT in Euclidean spaces) works; the API
-//! will change.
 //!
 //! Repository: <https://github.com/sunsided/robust-planning>
 

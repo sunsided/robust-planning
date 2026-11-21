@@ -1,7 +1,7 @@
 # robust-planning design
 
-Planning over reachable sets under uncertainty: reachability-guided tree search, Robust-RRT,
-and later safety-constrained trajectory planning.
+Planning over reachable sets under uncertainty: reachability-guided search, Robust-RRT and
+Robust RRT*.
 
 ## Core rule
 
@@ -61,11 +61,10 @@ It uses `linear_map`, `minkowski_sum` and Girard `reduce` per step. Between time
 system is assumed to move in a straight line. The cover set of step `k` is then the box
 around `X_k ∪ X_{k+1}`: it contains every segment from a point of `X_k` to a point of
 `X_{k+1}`, so a step longer than a thin wall cannot jump over it. This model lives only in
-`tests/it/affine.rs` and is shared with the example through `#[path]`. **The real
-implementation will come from `polyzonotope-reach`** (owned by the polyzonotope session,
-workspace member `crates/polyzonotope-reach`). That crate will provide validated
-time-point and time-interval sets, including for nonlinear dynamics. The local `Reach`
-trait is the seam that crate will plug into.
+`tests/it/affine.rs` and is shared with the example through `#[path]`. Users implement
+`Reach` for their own dynamics. `polyzonotope-reach` (a member of the polyzonotope workspace)
+computes validated time-point and time-interval sets, including for nonlinear dynamics; the
+`Reach` trait is the seam a model built on it plugs into.
 
 ## Safety verdicts
 
@@ -494,8 +493,8 @@ Nothing here changes another repo. These are requests to the owning sessions.
 **polyzonotope-reach**
 
 - The real `Reach` implementation: validated time-point *and* time-interval reachable sets
-  for affine and nonlinear dynamics under `X₀`, `U` and `W`. robust-planning will switch
-  from its local trait to that crate's API, or adapt it, once it exists.
+  for affine and nonlinear dynamics under `X₀`, `U` and `W`. robust-planning will adapt
+  its local trait to that crate's API.
 
 ## Testing strategy
 
@@ -569,24 +568,17 @@ Nothing here changes another repo. These are requests to the owning sessions.
 Later: property tests over random affine systems; cross-checks of the sets against CORA
 through polyzonotope's harness; fuzzing of the checker inputs.
 
-## Milestones
+## Not yet implemented
 
-1. **Done in this draft.** `SafetyVerdict` semantics, `Obstacles`, the `Reach` trait, the
-   `ReachChecker` adapter for `sampling-planning`, and `RobustRrt` with a reachable set
-   per node. Tests use an affine model; there is a 2D example.
-2. Switch to `polyzonotope-reach`. Adopt time-interval sets and drop the box hull.
-   Nonlinear dynamics.
-3. Refinement beyond set splitting: time splitting, initial-set bisection, and budget
-   escalation.
-4. **Done in this draft:** the reachability-guided best-first search (`ReachSearch`) and
-   Robust RRT* with transactional re-propagation on rewiring (`RobustRrtStar`), in a local
-   tree, with an unbounded mode, a robustness-weighted cost, workspace bounds, a derived
-   goal radius, opt-in subtree pruning, opt-in proven deduplication (2 to 4 dimensions)
-   and opt-in set bounds. **Open:** reusing `sampling-planning` trees once they carry
-   per-node payloads; proven containment above four dimensions or twelve generators.
-5. Safety-constrained trajectory planning: optimize nominal controls under proven set
-   constraints. Fail-safe maneuvers.
-6. Optional `temporal-control` adapter for timed plans (spaceflight track).
+- A `Reach` model on `polyzonotope-reach`, with time-interval sets in place of the box hull,
+  and nonlinear dynamics.
+- Refinement beyond set splitting: time splitting, initial-set bisection, and budget
+  escalation.
+- Reusing `sampling-planning` trees once they carry per-node payloads; proven containment
+  above four dimensions or twelve generators.
+- Safety-constrained trajectory planning: optimize nominal controls under proven set
+  constraints. Fail-safe maneuvers.
+- An optional `temporal-control` adapter for timed plans.
 
 ## References
 

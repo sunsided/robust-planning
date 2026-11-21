@@ -21,18 +21,6 @@ needs before it can be merged.
 4. Install the git hooks with [prek](https://prek.j178.dev/) (`prek install`), or with
    `pre-commit install`. Fast checks run on commit; clippy and tests run on push.
 
-### Sibling crates
-
-`sampling-planning` is not released yet (crates.io only has a 0.0.0 placeholder), so
-`Cargo.toml` depends on it by path: check out
-[sampling-planning](https://github.com/sunsided/sampling-planning) next to this repository,
-as `../sampling-planning`. CI does the same (`.github/actions/checkout-siblings`).
-
-Inside the planning hub directory, the untracked `../.cargo/config.toml` patches the
-released sibling crates (`[patch.crates-io]`) to their working trees, so local builds use
-local changes. CI and Dependabot never see that file and resolve from crates.io. The patch
-rewrites `Cargo.lock` on every build, which is why no lock file is tracked.
-
 ### The `sound` feature
 
 `sound` turns on outward rounding in polyzonotope; only then are safety verdicts proofs. Its
@@ -104,12 +92,6 @@ Releases are handled by [release-plz](https://release-plz.dev/). Every merge to
 GitHub Releases. The `vX.Y.Z` tag then triggers `publish-crates-io.yml`, which
 publishes the crate to crates.io via trusted publishing from the protected `crates-io`
 environment.
-
-Release automation is dormant for now. The release-plz jobs run only once the repository
-variable `RELEASE_APP_CLIENT_ID` (and the secret `RELEASE_APP_PRIVATE_KEY`) of the release
-GitHub App are set; setting them activates releases. The first real release also needs
-`sampling-planning` on crates.io, because `cargo publish` verifies against the registry
-version of every dependency.
 
 ## License
 

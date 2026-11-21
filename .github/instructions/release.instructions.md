@@ -15,9 +15,6 @@ applyTo: "**/Cargo.toml,release-plz.toml,.github/workflows/release-plz.yml,.gith
 - New dependencies must pass `cargo deny check`: allowed licenses, no advisories, no git or
   unknown-registry sources. Runtime dependencies are only `nalgebra` (no default
   features), `polyzonotope` and `sampling-planning`. Adding one needs a reason in the PR.
-- `sampling-planning` is a `path` + `version` dependency until it has a real crates.io
-  release. Until then `cargo publish` cannot verify this crate, and Dependabot's Cargo
-  updates fail. Once it is released, drop the `path` and the sibling checkout in CI.
 - `rust-version` is a signal, not a contract. Raising it is allowed when a dependency or a
   feature benefits. It needs a minor release and a changelog note, never a patch release.
 - release-plz runs in git-only mode: it tags and creates GitHub Releases. `publish-crates-io.yml`

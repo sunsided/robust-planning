@@ -1,6 +1,6 @@
 [package]
 name = "robust-planning"
-description = "Planning over reachable sets under uncertainty: Robust-RRT and reachability-guided search"
+description = "Motion planning over reachable sets under bounded uncertainty: Robust-RRT, Robust RRT* and reachability-guided A* with conservative safety proofs"
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.89"
@@ -8,8 +8,8 @@ authors = ["Markus Mayer <widemeadows@gmail.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sunsided/robust-planning"
 readme = "README.md"
-keywords = ["planning", "reachability", "robotics", "safety", "rrt"]
-categories = ["science::robotics", "algorithms"]
+keywords = ["motion-planning", "reachability", "zonotope", "rrt", "safety"]
+categories = ["science::robotics", "algorithms", "mathematics"]
 # Repository tooling stays out of the published crate.
 exclude = [
     ".github/",

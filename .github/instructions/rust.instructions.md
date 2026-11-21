@@ -29,7 +29,7 @@ applyTo: "**/*.rs"
   `Some(true)` must be a proof; the fuzz target and the property tests check that.
 - Randomness comes only from a caller-provided RNG. A seeded run must be fully
   reproducible: no hidden RNGs, no iteration over hash maps.
-- Public API changes go with a matching update to the README "Scope" list and
+- Public API changes go with a matching update to the README "Features" list and
   `docs/design.md`.
 - Mermaid diagrams in doc comments must match the code they describe. Update them when the
   structure changes.

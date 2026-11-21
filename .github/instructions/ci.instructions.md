@@ -23,16 +23,8 @@ applyTo: ".github/workflows/**,Taskfile.dist.yaml,**/Taskfile.dist.yaml,.pre-com
   verification job.
 - CI jobs: `branch`, `fmt`, `clippy`, `style`, `doc`, `test` (Linux only), `coverage`,
   `deny`, `msrv`, `semver`, `fuzz`, plus `actionlint` and `zizmor` in `actions-lint.yml`.
-- `sampling-planning` is an unreleased path dependency. Every job that builds checks the
-  repository out into `robust-planning/`, then the private sibling next to it through
-  `./robust-planning/.github/actions/checkout-siblings` (token `SIBLING_REPOS_TOKEN`), and sets
-  `defaults.run.working-directory: robust-planning`. `uses:` steps that read the crate need
-  an explicit path input (manifest path, cache workspace, Codecov working directory).
-  Remove the sibling checkout once the dependency moves to a crates.io release.
 - `.github/zizmor.yml` disables only the `self-repository` audit: it asks for the `$/` form,
   which actionlint rejects. Re-enable it once actionlint accepts `$/`.
-- `cargo fmt` runs without `--all`: `--all` also formats path dependencies and would
-  rewrite the sibling checkout.
 - The `sound` feature (inari) needs `-C target-cpu=haswell` on x86-64. `.cargo/config.toml`
   sets it for commands run inside the repository; jobs whose action runs cargo from the
   workspace root (semver, release-plz) set `RUSTFLAGS` themselves.
@@ -41,9 +33,7 @@ applyTo: ".github/workflows/**,Taskfile.dist.yaml,**/Taskfile.dist.yaml,.pre-com
 - `fuzz/` is a separate nightly workspace (target `decide_within`). Its tasks
   live in `fuzz/Taskfile.dist.yaml`, included as `fuzz:`; CI's `fuzz` job mirrors
   `task fuzz:build` and `task fuzz:lint`.
-- No `Cargo.lock` is tracked (root or `fuzz/`): this is a library, and local builds in the
-  planning hub patch published siblings to their working trees (the hub's
-  `.cargo/config.toml`), which rewrites the lock on every build. CI resolves fresh from
+- No `Cargo.lock` is tracked (root or `fuzz/`): this is a library. CI resolves fresh from
   crates.io, and no step uses `--locked`.
 - `scripts/check-branch.sh` is the single definition of allowed branch names. It is used by
   the Taskfile, the hook and the CI `branch` job.
