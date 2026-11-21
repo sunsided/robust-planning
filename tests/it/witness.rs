@@ -38,10 +38,10 @@ impl Reach<2> for Overlap {
         initial: &SparsePolyZonotope,
         _: &[f64; 2],
         cover: &mut Vec<SparsePolyZonotope>,
-    ) -> SparsePolyZonotope {
+    ) -> Option<SparsePolyZonotope> {
         cover.push(square(1.0, 2.0));
 
-        initial.clone()
+        Some(initial.clone())
     }
 
     fn certify_collision(
@@ -81,10 +81,10 @@ fn overlap_without_a_witness_is_indeterminate() {
             initial: &SparsePolyZonotope,
             _: &[f64; 2],
             cover: &mut Vec<SparsePolyZonotope>,
-        ) -> SparsePolyZonotope {
+        ) -> Option<SparsePolyZonotope> {
             cover.push(square(1.0, 2.0));
 
-            initial.clone()
+            Some(initial.clone())
         }
     }
 
@@ -150,6 +150,62 @@ fn safe_edges_never_become_unsafe() {
     );
 
     assert_eq!(verdict, SafetyVerdict::Safe);
+}
+
+#[test]
+fn edges_the_model_cannot_enclose_are_indeterminate_without_a_witness() {
+    /// Covers the start of every edge, then gives up before its end.
+    struct Refuses;
+
+    impl Reach<2> for Refuses {
+        /// The end point of the edge.
+        type Control = [f64; 2];
+
+        fn propagate(
+            &self,
+            _: &SparsePolyZonotope,
+            _: &[f64; 2],
+            cover: &mut Vec<SparsePolyZonotope>,
+        ) -> Option<SparsePolyZonotope> {
+            cover.push(square(1.0, 2.0));
+
+            None
+        }
+
+        /// Would certify a collision; never asked, because the edge was not enclosed.
+        fn certify_collision(
+            &self,
+            _: &SparsePolyZonotope,
+            _: &[f64; 2],
+            _: &SparsePolyZonotope,
+            _: &Polytope,
+        ) -> Option<Vec<f64>> {
+            Some(vec![1.5, 1.5])
+        }
+    }
+
+    let clear = Obstacles::new(
+        vec![Polytope::from_box(&IntervalBox(vec![
+            Interval::new(
+                5.0, 6.0
+            );
+            2
+        ]))],
+        4,
+    );
+
+    for obstacles in [clear, obstacles()] {
+        let (verdict, end) = check_edge(
+            &Refuses,
+            &obstacles,
+            &square(1.0, 2.0),
+            &[1.5, 1.5],
+            &mut Vec::new(),
+        );
+
+        assert_eq!(verdict, SafetyVerdict::Indeterminate);
+        assert_eq!(end, None);
+    }
 }
 
 #[test]

@@ -35,7 +35,9 @@ All sets are polyzonotope `SparsePolyZonotope`s. Zonotopes and boxes convert exa
   wrong dimension, because polyzonotope's `containment` never refutes a NaN facet and
   would answer `Inside` for a set far outside it.
 - **Dynamics** sit behind the `Reach` trait (see below). `Reach::propagate` returns the
-  sets that cover the whole edge under one control, plus the end set.
+  sets that cover the whole edge under one control, plus the end set, or no end set if the
+  model cannot enclose the edge (an integrator that refuses a step). Such an edge is
+  `Indeterminate`, never `Safe`.
 - **Steering** sits behind the separate `Steer<N, C>` trait. For one edge, `Steer::steer`
   chooses a control of type `C` and a nominal end state. Planners require
   `R: Reach<N> + Steer<N, R::Control>`. A model that steers itself implements both traits.
@@ -182,7 +184,8 @@ One iteration:
    end state.
 3. `propagate` the node's set under that control, to get the cover sets and the end set.
 4. Accept the edge only if `Obstacles::check_sets(cover)` is `Safe`. The cover spans the
-   whole edge, every intermediate time step included. An empty cover is `Indeterminate`.
+   whole edge, every intermediate time step included. An edge without an end set, and an
+   empty cover, are `Indeterminate`.
 5. Add the node with the end set. It reaches the goal if `Goal::containment` proves the
    end set inside the goal.
 

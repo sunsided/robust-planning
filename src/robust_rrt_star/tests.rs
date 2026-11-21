@@ -21,7 +21,7 @@ impl Reach<2> for Grow {
         initial: &SparsePolyZonotope,
         end: &[f64; 2],
         cover: &mut Vec<SparsePolyZonotope>,
-    ) -> SparsePolyZonotope {
+    ) -> Option<SparsePolyZonotope> {
         let from = initial.interval_hull();
         let end_box = IntervalBox(
             (0..2)
@@ -44,7 +44,7 @@ impl Reach<2> for Grow {
         );
 
         cover.push(set(&hull));
-        set(&end_box)
+        Some(set(&end_box))
     }
 }
 

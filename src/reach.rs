@@ -17,7 +17,9 @@ use crate::{Obstacles, SafetyVerdict, Witness};
 /// [`Reach::propagate`] must over-approximate: every state the real system can occupy while
 /// it executes the control, including between time steps, must lie in one of the cover sets,
 /// and every state it can end in must lie in the returned end set. Planners prove safety from
-/// these sets only, so an under-approximation makes their proofs void.
+/// these sets only, so an under-approximation makes their proofs void. A model that cannot
+/// enclose an edge, for example because its integrator refuses a step, returns `None`
+/// instead of a set it has not proven.
 pub trait Reach<const N: usize> {
     /// What drives the system along one edge, for example a sequence of nominal inputs.
     type Control: Clone;
@@ -27,12 +29,16 @@ pub trait Reach<const N: usize> {
     /// Appends sets to `cover` that together contain every state on the way, from the start
     /// of the edge to its end, in time order. Returns the set of states at the end of the
     /// edge, which becomes the next edge's `initial`.
+    ///
+    /// Returns `None` if the model cannot enclose the whole edge. The sets it appended before
+    /// giving up stay in `cover` and are still sound, but they do not reach the end of the
+    /// edge, so [`check_edge`] answers [`SafetyVerdict::Indeterminate`].
     fn propagate(
         &self,
         initial: &SparsePolyZonotope,
         control: &Self::Control,
         cover: &mut Vec<SparsePolyZonotope>,
-    ) -> SparsePolyZonotope;
+    ) -> Option<SparsePolyZonotope>;
 
     /// Certifies a state the real system reaches in `set` that lies inside `obstacle`.
     ///
@@ -68,11 +74,14 @@ pub trait Reach<const N: usize> {
 /// Propagates `initial` under `control` and checks the cover against `obstacles`.
 ///
 /// Clears `cover` first and leaves the edge's cover sets in it. Returns the verdict and the
-/// end set. The verdict is [`SafetyVerdict::Safe`] only if every cover set is proven
-/// disjoint from every obstacle. An edge that is not proven safe is
-/// [`SafetyVerdict::Unsafe`] if [`Reach::certify_collision`] certifies a collision, and
-/// [`SafetyVerdict::Indeterminate`] otherwise. An empty cover is `Indeterminate`: a model
-/// that reports no sets has not shown where the system goes.
+/// end set, which is `None` exactly when [`Reach::propagate`] could not enclose the edge.
+/// The verdict is [`SafetyVerdict::Safe`] only if the model enclosed the edge and every
+/// cover set is proven disjoint from every obstacle, so a `Safe` verdict always comes with
+/// an end set. An edge that is not proven safe is [`SafetyVerdict::Unsafe`] if
+/// [`Reach::certify_collision`] certifies a collision, and [`SafetyVerdict::Indeterminate`]
+/// otherwise. An edge the model could not enclose, and an empty cover, are `Indeterminate`
+/// without asking for a witness: a model that reports no sets, or not all of them, has not
+/// shown where the system goes.
 ///
 /// # Panics
 ///
@@ -83,11 +92,11 @@ pub fn check_edge<R: Reach<N>, const N: usize>(
     initial: &SparsePolyZonotope,
     control: &R::Control,
     cover: &mut Vec<SparsePolyZonotope>,
-) -> (SafetyVerdict, SparsePolyZonotope) {
+) -> (SafetyVerdict, Option<SparsePolyZonotope>) {
     cover.clear();
     let end = reach.propagate(initial, control, cover);
 
-    if cover.is_empty() {
+    if end.is_none() || cover.is_empty() {
         return (SafetyVerdict::Indeterminate, end);
     }
 

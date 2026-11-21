@@ -110,7 +110,7 @@ impl<const N: usize> Reach<N> for Affine<N> {
         initial: &SparsePolyZonotope,
         control: &Self::Control,
         cover: &mut Vec<SparsePolyZonotope>,
-    ) -> SparsePolyZonotope {
+    ) -> Option<SparsePolyZonotope> {
         let mut set = initial.clone();
 
         for u in control {
@@ -119,7 +119,7 @@ impl<const N: usize> Reach<N> for Affine<N> {
             set = next;
         }
 
-        set
+        Some(set)
     }
 }
 

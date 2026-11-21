@@ -52,7 +52,8 @@ fn every_accepted_edge_is_proven_disjoint() {
             let control = node.control.as_ref().expect("non-root");
 
             cover.clear();
-            reach.propagate(&parent.set, control, &mut cover);
+            let end = reach.propagate(&parent.set, control, &mut cover);
+            assert!(end.is_some(), "every accepted edge has an end set");
             assert_ne!(cover.len(), 0, "every edge has a cover");
 
             for (set, obstacle) in cover

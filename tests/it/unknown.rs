@@ -27,7 +27,7 @@ impl Reach<2> for Diamond {
         _: &SparsePolyZonotope,
         control: &[f64; 2],
         cover: &mut Vec<SparsePolyZonotope>,
-    ) -> SparsePolyZonotope {
+    ) -> Option<SparsePolyZonotope> {
         let generators = DMatrix::from_column_slice(2, 2, &[0.5, 0.5, 0.5, -0.5]);
         cover.push(SparsePolyZonotope::from_zonotope(&Zonotope::new(
             DVector::zeros(2),
@@ -36,7 +36,7 @@ impl Reach<2> for Diamond {
 
         let end = Zonotope::new(DVector::from_column_slice(control), DMatrix::zeros(2, 0));
 
-        SparsePolyZonotope::from_zonotope(&end)
+        Some(SparsePolyZonotope::from_zonotope(&end))
     }
 }
 
