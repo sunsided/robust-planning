@@ -32,7 +32,7 @@ All sets are polyzonotope `SparsePolyZonotope`s. Zonotopes and boxes convert exa
   not count. `PolytopeGoal` is the shipped implementation: a convex polytope in
   H-representation plus a center and a split budget, and the default goal type of
   `robust_rrt::Problem`. Its constructor rejects facets with non-finite entries or the
-  wrong dimension, because polyzonotope 0.2's `containment` never refutes a NaN facet and
+  wrong dimension, because polyzonotope's `containment` never refutes a NaN facet and
   would answer `Inside` for a set far outside it.
 - **Dynamics** sit behind the `Reach` trait (see below). `Reach::propagate` returns the
   sets that cover the whole edge under one control, plus the end set.
@@ -86,7 +86,7 @@ computes validated time-point and time-interval sets, including for nonlinear dy
 
 `Intersects` would map to `Unsafe` only if it were proven. That needs two things: a
 certified witness, and a set that is exact or under-approximated, so that the witness is a
-real reachable state. polyzonotope 0.2 provides neither, so `from_intersection` never
+real reachable state. polyzonotope provides neither, so `from_intersection` never
 produces `Unsafe`.
 
 ### Certified collisions: `Unsafe(Witness)`
@@ -386,7 +386,7 @@ because it is dimension-independent in scale and cheap.
 
 ## Proven set-in-set containment: `decide_within`
 
-polyzonotope 0.2 proves a set inside a polytope (`containment`) but not inside another
+polyzonotope proves a set inside a polytope (`containment`) but not inside another
 set. Proving `A ⊆ B` through an *outer* polytope of `B` would be unsound: `A` inside a
 superset of `B` says nothing about `B`. What is needed is a polytope *inside* `B`.
 
@@ -453,7 +453,7 @@ Planned refinements:
 
 ## Cross-crate needs
 
-Nothing here changes another repo. These are requests to the owning sessions.
+What the dependencies would need to provide for this crate to drop its local stand-ins.
 
 **sampling-planning**
 
@@ -487,14 +487,15 @@ Nothing here changes another repo. These are requests to the owning sessions.
 - **Under-approximations**, or an exactness flag, for the same reason.
 - **NaN facets in `containment`.** A facet with a NaN offset never refutes containment, so
   a set far outside it is reported `Inside`. `PolytopeGoal` guards against this locally.
-- **Convex hull or time-interval enclosures** of two consecutive sets. Today the test model
-  covers inter-sample motion with an axis-aligned box, which is coarse for rotated sets.
+- **Convex hull enclosures** of two consecutive sets. The test model covers inter-sample
+  motion with an axis-aligned box, which is coarse for rotated sets.
 
 **polyzonotope-reach**
 
-- The real `Reach` implementation: validated time-point *and* time-interval reachable sets
-  for affine and nonlinear dynamics under `X₀`, `U` and `W`. robust-planning will adapt
-  its local trait to that crate's API.
+- Computes validated time-point and time-interval reachable sets for linear and nonlinear
+  dynamics. Each `Step` maps onto `Reach::propagate`: `time_interval` is a cover set,
+  `time_point` the end set. A `Reach` model on it needs a control type and a way to turn
+  a control into the input set `U`.
 
 ## Testing strategy
 

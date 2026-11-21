@@ -1,7 +1,7 @@
 //! Proven set-in-set containment: a set inside a zonotope, built on polyzonotope's
 //! set-in-polytope test.
 //!
-//! polyzonotope 0.2 can prove a set inside a polytope, but not inside another set. Testing
+//! polyzonotope can prove a set inside a polytope, but not inside another set. Testing
 //! against an *outer* polytope of the other set would be unsound, so this module builds an
 //! *inner* one. A zonotope of rank `n` in `n` dimensions is exactly the intersection of the
 //! facet pairs whose normals are the generalised cross products of every `n - 1` of its
