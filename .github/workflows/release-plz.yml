@@ -3,8 +3,6 @@
 # tag push starts publish-crates-io.yml, which publishes from the tag-restricted `crates-io` environment.
 # The App token matters: tags and PRs created with GITHUB_TOKEN would not trigger other workflows.
 # Dormant until the repository variable RELEASE_APP_CLIENT_ID is set; setting it activates releases.
-# The checkout puts this repository in robust-planning/ and the unreleased path dependency
-# sampling-planning next to it (.github/actions/checkout-siblings).
 name: Release-plz
 
 on:
@@ -31,24 +29,17 @@ jobs:
           permission-pull-requests: read
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: robust-planning
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./robust-planning/.github/actions/checkout-siblings
-        with:
-          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
       - uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
-          manifest_path: robust-planning/Cargo.toml
-          # release-plz reads its config from the working directory, one level above the crate.
-          config: robust-planning/release-plz.toml
           command: release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # semver_check builds `sound` outside robust-planning/.cargo; inari needs AVX2 and FMA.
+          # semver_check builds `sound` in a temporary copy outside .cargo/; inari needs AVX2 and FMA.
           RUSTFLAGS: -C target-cpu=haswell
 
   release-plz-pr:
@@ -70,22 +61,15 @@ jobs:
           permission-pull-requests: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: robust-planning
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./robust-planning/.github/actions/checkout-siblings
-        with:
-          token: ${{ secrets.SIBLING_REPOS_TOKEN }}
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
       - uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
-          manifest_path: robust-planning/Cargo.toml
-          # release-plz reads its config from the working directory, one level above the crate.
-          config: robust-planning/release-plz.toml
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # semver_check builds `sound` outside robust-planning/.cargo; inari needs AVX2 and FMA.
+          # semver_check builds `sound` in a temporary copy outside .cargo/; inari needs AVX2 and FMA.
           RUSTFLAGS: -C target-cpu=haswell

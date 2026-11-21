@@ -60,18 +60,16 @@ tasks:
       # A nested `task` process inherits env; `task: test` would not.
       - task test
 
-  # No --all: it also formats local path dependencies, which would rewrite the sibling
-  # checkout of sampling-planning next to this repository.
   fmt:
     desc: Format all Rust sources
     cmds:
-      - cargo fmt
+      - cargo fmt --all
       - task: fuzz:fmt
 
   fmt:check:
     desc: Check formatting without modifying files
     cmds:
-      - cargo fmt --check
+      - cargo fmt --all --check
 
   lint:
     desc: Run all linters

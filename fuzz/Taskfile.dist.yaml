@@ -40,17 +40,16 @@ tasks:
           cargo +nightly fuzz run "$target" -- -max_total_time={{.MAX_TIME}}
         done
 
-  # No --all: it also formats local path dependencies (this crate and sampling-planning).
   fmt:
-    desc: Format the fuzz crate (separate workspace, not covered by the root cargo fmt)
+    desc: Format the fuzz crate (separate workspace, not covered by cargo fmt --all)
     cmds:
-      - cargo fmt
+      - cargo fmt --all
 
   lint:
     desc: Format check and clippy for the fuzz crate
     preconditions: *nightly
     cmds:
-      - cargo fmt --check
+      - cargo fmt --all --check
       - cargo +nightly clippy --all-targets -- -D warnings
 
   clean:

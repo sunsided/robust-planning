@@ -23,11 +23,9 @@ applyTo: ".github/workflows/**,Taskfile.dist.yaml,**/Taskfile.dist.yaml,.pre-com
   verification job.
 - CI jobs: `branch`, `fmt`, `clippy`, `style`, `doc`, `test` (Linux only), `coverage`,
   `deny`, `msrv`, `semver`, `fuzz`, plus `actionlint` and `zizmor` in `actions-lint.yml`.
-- `.github/zizmor.yml` disables only the `self-repository` audit: it asks for the `$/` form,
-  which actionlint rejects. Re-enable it once actionlint accepts `$/`.
 - The `sound` feature (inari) needs `-C target-cpu=haswell` on x86-64. `.cargo/config.toml`
-  sets it for commands run inside the repository; jobs whose action runs cargo from the
-  workspace root (semver, release-plz) set `RUSTFLAGS` themselves.
+  sets it for commands run inside the repository; jobs whose tools build a baseline
+  elsewhere (semver, release-plz) set `RUSTFLAGS` themselves.
 - `msrv` checks the library only (`cargo hack check --rust-version --all-features`, no
   `--all-targets`): dev-dependencies may need a newer Rust. Do not add `--all-targets` back.
 - `fuzz/` is a separate nightly workspace (target `decide_within`). Its tasks
