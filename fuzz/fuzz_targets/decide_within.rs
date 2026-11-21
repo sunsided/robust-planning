@@ -3,7 +3,9 @@
 //! Inputs stay inside the shapes `decide_within` handles (at most [`MAX_GENERATORS`]
 //! generators with the inflation), so most runs reach the facet construction instead of
 //! returning `None`. Coordinates sit on a coarse grid, so parallel generators, zero
-//! generators and touching sets are common: they are where the facets degenerate.
+//! generators and touching sets are common: they are where the facets degenerate. Half the
+//! inner sets are the outer one scaled around its center by up to 1.2, so that proofs are
+//! common and some scaled sets stick out just a little.
 //!
 //! Two properties are checked:
 //!
@@ -54,6 +56,11 @@ impl Bytes<'_> {
 
         Zonotope::new(center, generators)
     }
+}
+
+/// `z` scaled around its center by `factor`.
+fn scaled_copy(z: &Zonotope, factor: f64) -> Zonotope {
+    Zonotope::new(z.center().clone(), z.generators() * factor)
 }
 
 /// The support function `max dᵀx` of `z` along `d`.
@@ -115,10 +122,15 @@ fn assert_supports_fit(
 fuzz_target!(|data: &[u8]| {
     let mut bytes = Bytes(data.iter());
     let n = 2 + bytes.below(MAX_DIMENSION - 1);
+    let scaled = bytes.byte() % 2 == 0;
     let inner_count = bytes.below(MAX_INNER_GENERATORS + 1);
     let outer_count = 1 + bytes.below(MAX_GENERATORS - MAX_DIMENSION);
-    let inner = bytes.zonotope(n, inner_count);
     let outer = bytes.zonotope(n, outer_count);
+    let inner = if scaled {
+        scaled_copy(&outer, f64::from(bytes.byte() % 20) / 16.0)
+    } else {
+        bytes.zonotope(n, inner_count)
+    };
     let tolerance = f64::from(bytes.byte() % 4) / 8.0;
     let max_splits = bytes.below(6);
     let sparse_inner = SparsePolyZonotope::from_zonotope(&inner);

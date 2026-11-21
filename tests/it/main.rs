@@ -2,6 +2,7 @@
 
 mod affine;
 mod goal;
+mod properties;
 mod search;
 mod simulate;
 mod star;
