@@ -21,6 +21,8 @@ way. Every check is conservative: a check that cannot prove safety returns `Inde
 never `Safe`, and planners reject it. With the `sound` feature, polyzonotope rounds outward and
 a `Safe` verdict becomes a proof rather than "safe up to floating-point rounding".
 
+Part of the [planning and search crates](https://sunsided.github.io/planning-and-search/); see also this crate's [overview page](https://sunsided.github.io/planning-and-search/crates/robust-planning/).
+
 ## Who this is for
 
 - Engineers working on autonomous vehicles, drones or spacecraft who have a dynamics model
